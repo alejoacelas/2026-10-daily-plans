@@ -7,13 +7,15 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  addDays, composeWeek, fingerprint, isDate, joinDay, mondayOf, splitDay, splitWeek, tabTitle, weekDates,
+  addDays, composeWeek, fingerprint, isDate, joinDay, mondayOf, splitAfter, splitDay, splitWeek, tabTitle,
+  weekDates, withAfter,
 } from '../shared/plans.js';
 import { flatTabs, getDoc, pushTab, tabToMarkdown } from './gdocs.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const DATA = process.env.DATA_DIR ?? path.join(ROOT, 'data');
 const DAYS = path.join(DATA, 'days');
+const WEEKS = path.join(DATA, 'weeks'); // the After hours section, one file per week (by Monday)
 const CONFLICTS = path.join(DATA, 'conflicts');
 const STATE = path.join(DATA, 'state.json');
 const PORT = Number(process.env.PORT ?? 8770);
@@ -21,6 +23,7 @@ const DOC_ID = process.env.GOOGLE_DOC_ID;
 const SYNC_MS = 10_000;
 
 fs.mkdirSync(DAYS, { recursive: true });
+fs.mkdirSync(WEEKS, { recursive: true });
 fs.mkdirSync(CONFLICTS, { recursive: true });
 if (!fs.existsSync(path.join(DATA, '.git'))) git('init', '-q');
 
@@ -29,6 +32,10 @@ const normal = (md) => joinDay(splitDay(md));
 const dayFile = (date) => path.join(DAYS, `${date}.md`);
 const readDay = (date) => (fs.existsSync(dayFile(date)) ? fs.readFileSync(dayFile(date), 'utf8') : '');
 const readWeek = (monday) => Object.fromEntries(weekDates(monday).map((d) => [d, readDay(d)]));
+const afterFile = (monday) => path.join(WEEKS, `${monday}.md`);
+const readAfter = (monday) => (fs.existsSync(afterFile(monday)) ? fs.readFileSync(afterFile(monday), 'utf8').trim() : '');
+const dayView = (date) => withAfter(joinDay(splitDay(readDay(date))), readAfter(mondayOf(date)));
+const weekView = (monday) => composeWeek(monday, readWeek(monday), { after: readAfter(monday) });
 const readState = () => (fs.existsSync(STATE) ? JSON.parse(fs.readFileSync(STATE, 'utf8')) : {});
 
 function writeFile(file, text) {
@@ -43,9 +50,15 @@ function writeDay(date, md) {
   writeFile(dayFile(date), md);
 }
 
+function writeAfter(monday, after) {
+  after = after.trim();
+  if (after === readAfter(monday)) return;
+  if (after || fs.existsSync(afterFile(monday))) writeFile(afterFile(monday), after ? `${after}\n` : '');
+}
+
 // Keeps a copy of a version that is about to be replaced without having been seen.
 function keep(date, source, md) {
-  if (normal(md) === EMPTY) return;
+  if (normal(md) === EMPTY || !md.trim()) return;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   writeFile(path.join(CONFLICTS, `${date}.${stamp}.${source}.md`), md);
   console.log(`kept the ${source} version of ${date} in conflicts/`);
@@ -58,8 +71,8 @@ function git(...args) {
 // History of every day file: commit pending changes every ten minutes.
 function snapshot() {
   try {
-    if (!git('status', '--porcelain', 'days', 'conflicts').trim()) return;
-    git('add', 'days', 'conflicts');
+    if (!git('status', '--porcelain', 'days', 'weeks', 'conflicts').trim()) return;
+    git('add', 'days', 'weeks', 'conflicts');
     git('-c', 'user.name=daily-plans', '-c', 'user.email=daily-plans@localhost', 'commit', '-qm', 'snapshot');
   } catch (e) {
     console.error('snapshot failed:', e.message);
@@ -78,6 +91,7 @@ async function syncOnce() {
   state.weeks ??= {};
   const mondays = new Set(Object.keys(state.weeks));
   for (const f of fs.readdirSync(DAYS)) if (f.endsWith('.md')) mondays.add(mondayOf(f.slice(0, 10)));
+  for (const f of fs.readdirSync(WEEKS)) if (f.endsWith('.md')) mondays.add(f.slice(0, 10));
   const thisMonday = mondayOf(new Date().toISOString().slice(0, 10));
   for (let i = -26; i <= 26; i++) {
     const monday = addDays(thisMonday, 7 * i);
@@ -89,31 +103,48 @@ async function syncOnce() {
     const week = (state.weeks[monday] ??= { app: {}, doc: {} });
     const tab = tabs.get(tabTitle(monday));
     const app = readWeek(monday);
-    const docDays = tab ? splitWeek(monday, tabToMarkdown(tab)) : null;
+    let after = readAfter(monday);
+    const docMd = tab ? tabToMarkdown(tab) : null;
+    const docDays = tab ? splitWeek(monday, docMd) : null;
+    // The seven days plus the shared After hours section, each compared and copied whole.
+    const parts = [
+      ...weekDates(monday).map((date) => ({
+        key: date, name: date, empty: EMPTY, normal,
+        app: () => app[date], doc: docDays?.[date],
+        changedOnDisk: () => readDay(date) !== app[date],
+        pull: (md) => { writeDay(date, md); app[date] = md; },
+      })),
+      {
+        key: 'after', name: `${monday} after hours`, empty: '', normal: (md) => md.trim(),
+        app: () => after, doc: docMd === null ? undefined : splitAfter(docMd).after,
+        changedOnDisk: () => readAfter(monday) !== after,
+        pull: (md) => { writeAfter(monday, md); after = md.trim(); },
+      },
+    ];
     let push = false;
-    for (const date of weekDates(monday)) {
-      const appChanged = normal(app[date]) !== (week.app[date] ?? EMPTY);
-      const docChanged = docDays !== null && docDays[date] !== (week.doc[date] ?? EMPTY);
+    for (const part of parts) {
+      const appChanged = part.normal(part.app()) !== (week.app[part.key] ?? part.empty);
+      const docChanged = part.doc !== undefined && part.doc !== (week.doc[part.key] ?? part.empty);
       if (docChanged && !appChanged) {
-        if (readDay(date) !== app[date]) continue; // edited in the app meanwhile; the next check decides
-        writeDay(date, docDays[date]);
-        app[date] = docDays[date]; // so a push of this week in this same check includes it
-        week.app[date] = normal(docDays[date]);
-        week.doc[date] = docDays[date];
-        console.log(`pulled ${date} from the Doc`);
+        if (part.changedOnDisk()) continue; // edited in the app meanwhile; the next check decides
+        part.pull(part.doc);
+        week.app[part.key] = part.normal(part.doc);
+        week.doc[part.key] = part.doc;
+        console.log(`pulled ${part.name} from the Doc`);
       } else if (appChanged) {
-        if (docChanged) keep(date, 'doc', docDays[date]);
+        if (docChanged) keep(part.name, 'doc', part.doc);
         push = true;
       }
     }
     if (push && !pushed) {
       pushed = true;
-      await pushTab(DOC_ID, tabTitle(monday), composeWeek(monday, app, { forDoc: true }), doc);
-      const after = flatTabs((await getDoc(DOC_ID)).tabs).find((t) => t.tabProperties.title === tabTitle(monday));
-      const afterDays = splitWeek(monday, tabToMarkdown(after));
-      for (const date of weekDates(monday)) {
-        week.app[date] = normal(app[date]);
-        week.doc[date] = afterDays[date];
+      await pushTab(DOC_ID, tabTitle(monday), composeWeek(monday, app, { forDoc: true, after }), doc);
+      const written = flatTabs((await getDoc(DOC_ID)).tabs).find((t) => t.tabProperties.title === tabTitle(monday));
+      const writtenMd = tabToMarkdown(written);
+      const writtenDays = splitWeek(monday, writtenMd);
+      for (const part of parts) {
+        week.app[part.key] = part.normal(part.app());
+        week.doc[part.key] = part.key === 'after' ? splitAfter(writtenMd).after : writtenDays[part.key];
       }
       console.log(`pushed ${tabTitle(monday)}`);
     }
@@ -152,32 +183,38 @@ createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/')) {
       if (!isDate(date ?? '')) return send(400, 'bad date');
       const monday = mondayOf(date);
-      const weekText = () => composeWeek(monday, readWeek(monday));
       // X-Version identifies the content a client last saw; an edit sent with an older
       // version still wins, but the version it replaces is kept in conflicts/.
       if (url.pathname === '/api/day' && req.method === 'GET') {
-        const text = readDay(date);
+        const text = dayView(date);
         return send(200, text, { 'X-Version': fingerprint(text) });
       }
       if (url.pathname === '/api/day' && req.method === 'PUT') {
-        const body = await readBody(req);
+        const stale = req.headers['x-version'] !== fingerprint(dayView(date));
+        const { rest, after } = splitAfter(await readBody(req));
         const old = readDay(date);
-        if (req.headers['x-version'] !== fingerprint(old) && normal(old) !== normal(body)) keep(date, 'replaced', old);
-        writeDay(date, body);
-        return send(204, '', { 'X-Version': fingerprint(readDay(date)) });
+        if (stale && normal(old) !== normal(rest)) keep(date, 'replaced', old);
+        if (stale && readAfter(monday) !== after.trim()) keep(`${monday} after hours`, 'replaced', readAfter(monday));
+        writeDay(date, rest);
+        writeAfter(monday, after);
+        return send(204, '', { 'X-Version': fingerprint(dayView(date)) });
       }
       if (url.pathname === '/api/week' && req.method === 'GET') {
-        const text = weekText();
+        const text = weekView(monday);
         return send(200, text, { 'X-Version': fingerprint(text) });
       }
       if (url.pathname === '/api/week' && req.method === 'PUT') {
-        const stale = req.headers['x-version'] !== fingerprint(weekText());
-        for (const [d, md] of Object.entries(splitWeek(monday, await readBody(req)))) {
+        const stale = req.headers['x-version'] !== fingerprint(weekView(monday));
+        const body = await readBody(req);
+        for (const [d, md] of Object.entries(splitWeek(monday, body))) {
           const old = readDay(d);
           if (stale && normal(old) !== normal(md)) keep(d, 'replaced', old);
           writeDay(d, md);
         }
-        return send(204, '', { 'X-Version': fingerprint(weekText()) });
+        const { after } = splitAfter(body);
+        if (stale && readAfter(monday) !== after.trim()) keep(`${monday} after hours`, 'replaced', readAfter(monday));
+        writeAfter(monday, after);
+        return send(204, '', { 'X-Version': fingerprint(weekView(monday)) });
       }
       if (url.pathname === '/api/sync' && req.method === 'POST') {
         await sync();

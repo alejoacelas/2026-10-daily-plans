@@ -18,6 +18,9 @@ You cannot run commands or use the web. If a request needs that, say what you wo
 ## Day file format
 
 The plan comes first, then a `## Notes` heading, then notes. Keep the `## Notes` heading.
+After hours is shared by the whole week and lives in its own file,
+`~/.local/share/daily-plans/weeks/<Monday's date>.md` (body only, no heading); never put an
+After hours section in a day file.
 Tasks are `- [ ] task`, done tasks `- [x] task`. Create the file if the day has none, as
 the plan followed by `## Notes`. `~/work/daily-plans/AGENTS.md` explains the app and its
 Google Doc sync; files in `conflicts/` hold versions that a sync replaced.

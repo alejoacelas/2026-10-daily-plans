@@ -8,6 +8,8 @@
       "TodoWrite",
       "Edit(~/.local/share/daily-plans/days/**)",
       "Write(~/.local/share/daily-plans/days/**)",
+      "Edit(~/.local/share/daily-plans/weeks/**)",
+      "Write(~/.local/share/daily-plans/weeks/**)",
       "Edit(~/work/daily-plans/**)",
       "Write(~/work/daily-plans/**)"
     ],

@@ -83,12 +83,6 @@ function setContent(md) {
   loading = false;
 }
 
-// Every day starts from the plan, then a "## Notes" heading.
-function withNotesHeading(md) {
-  if (/^##\s+Notes\s*$/m.test(md)) return md;
-  return md.trim() ? `${md.trim()}\n\n## Notes\n` : '## Notes\n';
-}
-
 function render() {
   const monday = mondayOf(view.date);
   $('title').textContent = view.week ? tabTitle(monday) : dayLabel(view.date);
@@ -130,7 +124,7 @@ async function go(next) {
   const res = await fetch(apiUrl(view));
   const text = await res.text();
   versions.set(apiUrl(view), res.headers.get('X-Version'));
-  setContent(view.week ? text : withNotesHeading(text));
+  setContent(text);
   editor.setEditable(true, false);
   placeCursor();
 }
@@ -144,6 +138,7 @@ function dayAtCursor() {
     if (offset > cursor) return;
     const text = node.textContent.trim();
     if (labels[text] && (node.type.name === 'heading' || node.type.name === 'paragraph')) day = labels[text];
+    else if (node.type.name === 'heading' && text === 'After hours') day = null;
   });
   return day;
 }
@@ -201,7 +196,7 @@ async function refresh() {
   if (!quiet() || url !== apiUrl(view) || version === versions.get(url)) return;
   versions.set(url, version);
   const { from } = editor.state.selection;
-  setContent(view.week ? text : withNotesHeading(text));
+  setContent(text);
   editor.commands.setTextSelection(Math.min(from, editor.state.doc.content.size - 1));
 }
 setInterval(refresh, 5000);

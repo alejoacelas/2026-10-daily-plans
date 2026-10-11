@@ -14,8 +14,10 @@ the "daily" Google Doc.
 - One markdown file per day in `DATA_DIR/days/YYYY-MM-DD.md`: the plan, then `## Notes`, then notes.
   `DATA_DIR` is a Git repository the server commits to every ten minutes, so every version is recoverable.
 - The week view (`shared/plans.js`) is each day's plan under `## Mon, Oct 5`, then `## Notes`
-  with each non-empty day's notes under a bold `**Mon, Oct 5**` line. Saving the week view
-  splits it back into day files; whichever view saves last wins.
+  with each non-empty day's notes under a bold `**Mon, Oct 5**` line, then `## After hours`.
+  Saving the week view splits it back into day files; whichever view saves last wins.
+- After hours is one section per week, stored in `DATA_DIR/weeks/<Monday>.md` and shown below
+  Notes in every day view and in the week view. Sync treats it as an eighth part of the week.
 - Every 10 s the server reads the whole Doc (`server/server.mjs`, `syncOnce`). Each week's tab is
   named `w41, Oct 05` (ISO week, Monday's date). For each day it compares both sides with the
   version each side had at the last sync, kept per side in `DATA_DIR/state.json`: days changed

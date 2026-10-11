@@ -4,6 +4,7 @@
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const NOTES_HEADING = /^##\s+Notes\s*$/;
+const AFTER_HEADING = /^##\s+After hours\s*$/i;
 
 const parse = (date) => {
   const [y, m, d] = date.split('-').map(Number);
@@ -41,11 +42,24 @@ export function tabTitle(monday) {
   return `w${pad(isoWeek(monday))}, ${MONTHS[d.getUTCMonth()]} ${pad(d.getUTCDate())}`;
 }
 
+// "## After hours" closes both views: one section shared by the whole week, stored once.
+export function splitAfter(md = '') {
+  const lines = md.split('\n');
+  const i = lines.findIndex((l) => AFTER_HEADING.test(l));
+  if (i < 0) return { rest: md, after: '' };
+  return { rest: lines.slice(0, i).join('\n'), after: lines.slice(i + 1).join('\n').trim() };
+}
+
+export function withAfter(md, after, { forDoc = false } = {}) {
+  if (forDoc && !after) return `${md.trimEnd()}\n`;
+  return [md.trimEnd(), '## After hours', after].filter(Boolean).join('\n\n') + '\n';
+}
+
 // A day file is the plan, then a "## Notes" heading, then the notes.
 export function splitDay(md = '') {
-  const lines = md.split('\n');
+  const lines = splitAfter(md).rest.split('\n');
   const i = lines.findIndex((l) => NOTES_HEADING.test(l));
-  if (i < 0) return { plan: md.trim(), notes: '' };
+  if (i < 0) return { plan: lines.join('\n').trim(), notes: '' };
   return { plan: lines.slice(0, i).join('\n').trim(), notes: lines.slice(i + 1).join('\n').trim() };
 }
 
@@ -54,8 +68,9 @@ export function joinDay({ plan, notes }) {
 }
 
 // The week: each day's plan under "## Mon, Oct 5", then "## Notes" with each day's
-// non-empty notes under a bold "**Mon, Oct 5**" line. The doc version drops empty days.
-export function composeWeek(monday, days, { forDoc = false } = {}) {
+// non-empty notes under a bold "**Mon, Oct 5**" line, then "## After hours". The doc
+// version drops empty days and empty sections.
+export function composeWeek(monday, days, { forDoc = false, after = '' } = {}) {
   const parts = [];
   const notes = [];
   for (const date of weekDates(monday)) {
@@ -64,10 +79,11 @@ export function composeWeek(monday, days, { forDoc = false } = {}) {
     if (day.notes) notes.push(`**${dayLabel(date)}**`, day.notes);
   }
   if (notes.length || !forDoc) parts.push('## Notes', ...notes);
-  return parts.filter(Boolean).join('\n\n') + '\n';
+  return withAfter(parts.filter(Boolean).join('\n\n'), after, { forDoc });
 }
 
-// Inverse of composeWeek: returns { date: dayMarkdown } for all seven days.
+// Inverse of composeWeek: returns { date: dayMarkdown } for all seven days; read the
+// After hours section with splitAfter.
 // Text above the first day heading, or above the first bold label under Notes, goes to Monday.
 export function splitWeek(monday, md) {
   const dates = weekDates(monday);
@@ -76,7 +92,7 @@ export function splitWeek(monday, md) {
   const notes = Object.fromEntries(dates.map((d) => [d, []]));
   let section = plan;
   let current = monday;
-  for (const line of md.split('\n')) {
+  for (const line of splitAfter(md).rest.split('\n')) {
     const heading = line.match(/^##\s+(.+?)\s*$/);
     const bold = line.match(/^\*\*(.+?)\*\*\s*$/);
     if (section === plan && heading && byLabel[heading[1]]) current = byLabel[heading[1]];

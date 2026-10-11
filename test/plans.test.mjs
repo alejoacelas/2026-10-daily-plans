@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composeWeek, dayLabel, isoWeek, splitDay, splitWeek, tabTitle } from '../shared/plans.js';
+import { composeWeek, dayLabel, isoWeek, splitAfter, splitDay, splitWeek, tabTitle } from '../shared/plans.js';
 import { layout } from '../server/gdocs.mjs';
 
 const monday = '2026-10-05';
@@ -30,7 +30,7 @@ test('doc version drops empty days and empty notes', () => {
 });
 
 test('notes typed in the week view land on their day', () => {
-  const md = composeWeek(monday, days) + '\n**Fri, Oct 9**\n\nnew note\n';
+  const md = composeWeek(monday, days).replace('## After hours', '**Fri, Oct 9**\n\nnew note\n\n## After hours');
   assert.equal(splitDay(splitWeek(monday, md)['2026-10-09']).notes, 'new note');
 });
 
@@ -39,4 +39,18 @@ test('layout indents nested list items and records one list range', () => {
   assert.equal(text, 'a\n\tb\nc\n');
   assert.deepEqual(lists, [{ start: 0, end: 7, preset: 'BULLET_CHECKBOX' }]);
   assert.ok(spans.some((s) => s.style.strikethrough && text.slice(s.start, s.end) === 'b'));
+});
+
+test('After hours closes the week and stays out of the days', () => {
+  const md = composeWeek(monday, days, { after: '- Movie night' });
+  assert.ok(md.endsWith('## After hours\n\n- Movie night\n'));
+  assert.equal(splitAfter(md).after, '- Movie night');
+  assert.equal(splitWeek(monday, md)['2026-10-11'], days['2026-10-11']);
+  assert.ok(!composeWeek(monday, days, { forDoc: true }).includes('After hours'));
+});
+
+test('a day view with After hours splits back into the day and the shared section', () => {
+  const view = '- run\n\n## Notes\n\nnote\n\n## After hours\n\n- read\n';
+  assert.deepEqual(splitDay(view), { plan: '- run', notes: 'note' });
+  assert.equal(splitAfter(view).after, '- read');
 });

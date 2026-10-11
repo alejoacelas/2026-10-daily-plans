@@ -1,7 +1,8 @@
 # Daily plans
 
 A quiet markdown editor for daily plans. Each day has a plan and a `## Notes` section;
-the week view stacks the plans and gathers the notes underneath. Each week also lives in
+the week view stacks the plans and gathers the notes underneath. An After hours section,
+shared by the whole week, sits below Notes in every view. Each week also lives in
 its own tab of a Google Doc, and edits on either side reach the other within about 15 seconds.
 In the Doc, mark a task done by striking it through (⌘⇧X): Google doesn't let apps read the
 checkbox tick.
