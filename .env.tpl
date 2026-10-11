@@ -1,4 +1,4 @@
 GOOGLE_CLIENT_ID=1009200210134-t9l73f1kiiuh4quh5knsdjtl7gj8ovt5.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET={{ op://server-agents/wzteo6sgsks7chstxswix4aa6u/credential }}
-GOOGLE_REFRESH_TOKEN={{ op://server-agents/kcd6k7wybzg2rierbicwkx7if4/credential }}
-GOOGLE_DOC_ID={{ op://server-agents/kcd6k7wybzg2rierbicwkx7if4/doc_id }}
+GOOGLE_CLIENT_SECRET=op://server-agents/wzteo6sgsks7chstxswix4aa6u/credential
+GOOGLE_REFRESH_TOKEN=op://server-agents/kcd6k7wybzg2rierbicwkx7if4/credential
+GOOGLE_DOC_ID=op://server-agents/kcd6k7wybzg2rierbicwkx7if4/doc_id

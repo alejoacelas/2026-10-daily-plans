@@ -38,8 +38,9 @@ the "daily" Google Doc.
 ## Develop
 
 `npm install`, `npm run build` (bundles `client/` into `public/app.js`), `npm test`.
-Run locally with `DATA_DIR=/tmp/plans node --env-file=.env server/server.mjs`; rebuild `.env` with
-`op inject --account my.1password.com -i .env.tpl -o .env`.
+Run locally with
+`DATA_DIR=/tmp/plans op run --account my.1password.com --env-file .env.tpl -- node server/server.mjs`.
+Point `GOOGLE_DOC_ID` at a scratch doc when testing: the server starts syncing at once.
 
 ## Deploy
 
