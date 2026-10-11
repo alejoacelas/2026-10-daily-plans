@@ -5,6 +5,8 @@ After=network-online.target
 [Service]
 WorkingDirectory=%h/work/daily-plans/bot
 Environment=STATE_DIR=%h/.local/share/plans-bot
+# TELEGRAM_OWNER_ID=<the owner's numeric Telegram ID>; kept on the server only.
+EnvironmentFile=-%h/.config/plans-bot/owner.env
 ExecStart=%h/.local/bin/op-agent run --env-file %h/work/daily-plans/bot/.env.tpl -- /usr/bin/node bot.mjs
 Restart=on-failure
 RestartSec=5
