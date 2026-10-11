@@ -7,7 +7,7 @@ the "daily" Google Doc.
 - Visibility: public repository. Plan content lives only on the server and in the Google Doc; never commit it.
 - Google account: personal (`alejoacelas@gmail.com`), Docs scope only.
 - On the Mac it's installed as a Chrome app (Plans) and opened with ⌥P, a hotkey set in Raycast's settings, not in any repo.
-- Still running or billing: `daily-plans.service` on the agent server (no extra cost).
+- Still running or billing: `daily-plans.service` and `plans-bot.service` on the agent server (no extra cost; the bot uses the server's Claude login).
 
 ## How it works
 
@@ -36,6 +36,20 @@ the "daily" Google Doc.
   done in the Doc, strike it through (⌘⇧X); a tick alone is lost on the next push.
 - The page is always light, regardless of the system appearance.
 
+## Telegram bot
+
+`bot/bot.mjs` (service `deploy/plans-bot.service`) relays messages from @planbaitbot to
+`claude -p` in `bot/` and sends back the reply. It continues one conversation until `/new`.
+
+- It answers only the Telegram user in `~/.config/plans-bot/owner.env` (`TELEGRAM_OWNER_ID`,
+  on the server only). With no owner set, it only tells a sender their own ID.
+- Claude's permissions are in `bot/.claude/settings.json`: read everything except credential
+  files and `/proc`; write only the day files and this repo (not `.git`, `bot/` or `deploy/`);
+  no shell or web. Claude Code ignores those allow rules unless the folder is trusted, set by
+  `projects["/home/alejo/work/daily-plans"].hasTrustDialogAccepted` in the server's `~/.claude.json`.
+- The bot runs Claude with `--setting-sources project --strict-mcp-config --permission-mode dontAsk`
+  and strips `TELEGRAM_*` and `OP_*` variables from its environment. `bot/CLAUDE.md` is its brief.
+
 ## Develop
 
 `npm install`, `npm run build` (bundles `client/` into `public/app.js`), `npm test`.
@@ -62,6 +76,7 @@ All in personal 1Password (`my.1password.com`). The server reads the `server-age
 | `GOOGLE_CLIENT_SECRET` | `GOOGLE_OAUTH_CLIENT_SECRET — google-oauth-client-mac-air-2020-personal` (→ `wzteo6sgsks7chstxswix4aa6u`) | `credential` |
 | `GOOGLE_REFRESH_TOKEN` | `GOOGLE_REFRESH_TOKEN — daily-plans` (`hvcmfrvqgiw6fqs5ugis7exz3m` → `kcd6k7wybzg2rierbicwkx7if4`) | `credential` |
 | `GOOGLE_DOC_ID` | same item as `GOOGLE_REFRESH_TOKEN` | `doc_id` |
+| `TELEGRAM_BOT_TOKEN` | `TELEGRAM_BOT_TOKEN — daily-plans bot` (`n4mk7elbd2cwgcmlpslx5sqddy` → `ihgmf326e5zw3vz7vmzeq7t4aa`) | `credential` |
 
 `GOOGLE_CLIENT_ID` is not secret and sits in `.env.tpl`. To mint a new refresh token, run an
 OAuth installed-app flow with that client, scope `https://www.googleapis.com/auth/documents`,
