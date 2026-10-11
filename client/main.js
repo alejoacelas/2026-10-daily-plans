@@ -30,8 +30,10 @@ let view = viewFromHash();
 let loading = false;
 let dirty = false;
 let editingUrl = null;
-let serverText = '';
 let timer = null;
+let lastInput = 0;
+let unsaved = 0; // saves sent but not yet confirmed
+const versions = new Map(); // api url → version of the content the editor last loaded or saved
 let hintTimer = null;
 let saves = Promise.resolve();
 
@@ -42,8 +44,10 @@ function setStatus(s) {
 async function put(url, body) {
   for (;;) {
     try {
-      const res = await fetch(url, { method: 'PUT', body, keepalive: body.length < 60_000 });
-      if (res.ok) return;
+      const res = await fetch(url, {
+        method: 'PUT', body, keepalive: body.length < 60_000, headers: { 'X-Version': versions.get(url) ?? '' },
+      });
+      if (res.ok) return versions.set(url, res.headers.get('X-Version'));
     } catch {}
     setStatus('error');
     await sleep(3000);
@@ -58,15 +62,16 @@ function flush() {
   if (editingUrl !== apiUrl(view)) return saves; // never save one view's text under another
   const url = editingUrl;
   const body = editor.getMarkdown();
-  serverText = body;
   setStatus('saving');
-  saves = saves.then(() => put(url, body)).then(() => !dirty && setStatus(''));
+  unsaved++;
+  saves = saves.then(() => put(url, body)).then(() => --unsaved || dirty || setStatus(''));
   return saves;
 }
 
 editor.on('update', () => {
   if (loading || !editor.isEditable) return;
   dirty = true;
+  lastInput = Date.now();
   editingUrl = apiUrl(view);
   clearTimeout(timer);
   timer = setTimeout(flush, 300);
@@ -122,8 +127,9 @@ async function go(next) {
   editor.setEditable(false, false);
   view = next;
   render();
-  const text = await (await fetch(apiUrl(view))).text();
-  serverText = text;
+  const res = await fetch(apiUrl(view));
+  const text = await res.text();
+  versions.set(apiUrl(view), res.headers.get('X-Version'));
   setContent(view.week ? text : withNotesHeading(text));
   editor.setEditable(true, false);
   placeCursor();
@@ -142,12 +148,13 @@ function dayAtCursor() {
   return day;
 }
 
-async function pushNow() {
+async function syncNow() {
   await flush();
-  $('week').textContent = 'pushing…';
-  const res = await fetch(`api/push?date=${view.date}`, { method: 'POST' }).catch(() => null);
-  $('week').textContent = res?.ok ? 'pushed' : `push failed${res ? `: ${await res.text()}` : ''}`;
-  setTimeout(render, 2500);
+  $('week').textContent = 'syncing…';
+  const res = await fetch(`api/sync?date=${view.date}`, { method: 'POST' }).catch(() => null);
+  $('week').textContent = res?.ok ? 'synced' : 'sync failed';
+  setTimeout(render, 2000);
+  refresh();
 }
 
 window.addEventListener('keydown', (e) => {
@@ -164,7 +171,7 @@ window.addEventListener('keydown', (e) => {
     go(view.week ? { week: false, date: dayAtCursor() ?? view.date } : { week: true, date: view.date });
   } else if (e.code === 'KeyS') {
     e.preventDefault();
-    pushNow();
+    syncNow();
   }
 }, true);
 
@@ -181,20 +188,26 @@ window.addEventListener('hashchange', () => {
 
 $('title').addEventListener('click', () => go({ week: false, date: today() }));
 
-// Pick up edits made on another device when coming back to this window.
-window.addEventListener('focus', async () => {
-  await flush();
-  if (dirty) return;
-  const shown = { ...view };
-  const text = await (await fetch(apiUrl(shown))).text();
-  if (dirty || text === serverText || shown.date !== view.date || shown.week !== view.week) return;
-  serverText = text;
+// Pick up changes from the Doc or another device: every few seconds while the page is
+// visible, and whenever the window regains focus, but never mid-edit.
+async function refresh() {
+  const quiet = () => !dirty && !unsaved && !loading && editor.isEditable && Date.now() - lastInput > 3000;
+  if (document.hidden || !quiet()) return;
+  const url = apiUrl(view);
+  const res = await fetch(url).catch(() => null);
+  if (!res?.ok) return;
+  const text = await res.text();
+  const version = res.headers.get('X-Version');
+  if (!quiet() || url !== apiUrl(view) || version === versions.get(url)) return;
+  versions.set(url, version);
   const { from } = editor.state.selection;
   setContent(view.week ? text : withNotesHeading(text));
   editor.commands.setTextSelection(Math.min(from, editor.state.doc.content.size - 1));
-});
+}
+setInterval(refresh, 5000);
+window.addEventListener('focus', refresh);
 
-document.addEventListener('visibilitychange', () => document.hidden && flush());
+document.addEventListener('visibilitychange', () => (document.hidden ? flush() : refresh()));
 window.addEventListener('pagehide', flush);
 
 go(view);

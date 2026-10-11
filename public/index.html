@@ -10,7 +10,7 @@
   <script>
     // Relative URLs need the trailing slash when served under /plans.
     if (!location.pathname.endsWith('/')) location.replace(location.pathname + '/' + location.search + location.hash);
-    // Look: ?look=page|flat|tint|paper, remembered on this device.
+    // Look: ?look=flat|tint, remembered on this device.
     try {
       const look = new URLSearchParams(location.search).get('look') || localStorage.getItem('look');
       if (look) { localStorage.setItem('look', look); document.documentElement.dataset.look = look; }
@@ -26,7 +26,7 @@
     </header>
     <div id="editor"></div>
   </main>
-  <footer>⌘[ ⌘] day · ⌘⇧[ ⌘⇧] week · ⌘\ week view · ⌘S push</footer>
+  <footer>⌘[ ⌘] day · ⌘⇧[ ⌘⇧] week · ⌘\ week view · ⌘S sync</footer>
   <script type="module" src="app.js"></script>
 </body>
 </html>

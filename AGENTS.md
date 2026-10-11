@@ -1,8 +1,8 @@
 # daily-plans
 
 A minimal WYSIWYG markdown editor for daily plans, hosted on the agent server
-(`~/best/projects/2026-09-26-agent-server`). It pushes each week to the "daily" Google Doc,
-one tab per week.
+(`~/best/projects/2026-09-26-agent-server`). Each week syncs both ways with its own tab of
+the "daily" Google Doc.
 
 - Visibility: public repository. Plan content lives only on the server and in the Google Doc; never commit it.
 - Google account: personal (`alejoacelas@gmail.com`), Docs scope only.
@@ -15,12 +15,25 @@ one tab per week.
 - The week view (`shared/plans.js`) is each day's plan under `## Mon, Oct 5`, then `## Notes`
   with each non-empty day's notes under a bold `**Mon, Oct 5**` line. Saving the week view
   splits it back into day files; whichever view saves last wins.
-- From 12:00 to midnight (Europe/London) the server pushes, once an hour, every week whose
-  content changed since its last push. The tab is named `w41, Oct 05` (ISO week, Monday's date)
-  and is overwritten on each push. ⌘S in the editor pushes the current week at once.
-- `server/gdocs.mjs` converts markdown to Docs API requests itself, so the token needs only the
-  `documents` scope. Checked tasks appear as unchecked checkboxes with struck-through text,
-  because the Docs API cannot tick a checkbox.
+- Every 10 s the server reads the whole Doc (`server/server.mjs`, `syncOnce`). Each week's tab is
+  named `w41, Oct 05` (ISO week, Monday's date). For each day it compares both sides with the
+  version each side had at the last sync, kept per side in `DATA_DIR/state.json`: days changed
+  only in the Doc are written to the app; any day changed in the app makes the server rewrite the
+  whole tab. A day changed on both sides since the last check takes the app's version, and the
+  Doc's copy goes to `DATA_DIR/conflicts/`.
+- Doc writes carry the revision they were based on (`requiredRevisionId`), so an edit made in the
+  Doc between the server's read and its write makes the write fail and wait for the next check.
+- The editor saves 300 ms after typing stops and sends the version it started from (`X-Version`).
+  A save based on an older version still wins, but the replaced text goes to `conflicts/`. The
+  editor reloads from the server every 5 s while visible, once typing has paused for 3 s.
+  ⌘S syncs at once.
+- `server/gdocs.mjs` converts markdown to Docs requests and back, covering only headings,
+  paragraphs, bold, italic, strikethrough, code, links and bullet, numbered and checkbox lists.
+  The token needs only the `documents` scope. Anything else in the Doc is dropped on the next push.
+- The Docs API cannot read or set a checkbox's tick. Done items are written as struck-through
+  text, and a checkbox item whose text is entirely struck through reads as done. To mark an item
+  done in the Doc, strike it through (⌘⇧X); a tick alone is lost on the next push.
+- The page is always light, regardless of the system appearance.
 
 ## Develop
 

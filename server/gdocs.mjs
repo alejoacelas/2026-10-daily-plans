@@ -116,13 +116,21 @@ function textStyle(marks) {
   return fields.length ? { style, fields: fields.join(',') } : null;
 }
 
-function flatTabs(tabs) {
+export function flatTabs(tabs) {
   return tabs.flatMap((t) => [t, ...flatTabs(t.childTabs ?? [])]);
 }
 
+export const getDoc = (docId) => call(`${docId}?includeTabsContent=true`);
+
+function update(docId, requests, revisionId) {
+  const writeControl = revisionId ? { requiredRevisionId: revisionId } : undefined;
+  return call(`${docId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests, writeControl }) });
+}
+
 // Write `md` into the tab titled `title`, creating it (or claiming an empty "Tab 1").
-export async function pushTab(docId, title, md) {
-  let doc = await call(`${docId}?includeTabsContent=true`);
+// `doc` is the document as last read; the write is refused if the doc changed since then.
+export async function pushTab(docId, title, md, doc) {
+  let revisionId = doc.revisionId;
   let tabs = flatTabs(doc.tabs);
   let tab = tabs.find((t) => t.tabProperties.title === title);
   if (!tab) {
@@ -131,8 +139,8 @@ export async function pushTab(docId, title, md) {
     const request = blank
       ? { updateDocumentTabProperties: { tabProperties: { tabId: lone.tabProperties.tabId, title }, fields: 'title' } }
       : { addDocumentTab: { tabProperties: { title } } };
-    await call(`${docId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [request] }) });
-    doc = await call(`${docId}?includeTabsContent=true`);
+    revisionId = (await update(docId, [request], revisionId)).writeControl.requiredRevisionId;
+    doc = await getDoc(docId);
     tab = flatTabs(doc.tabs).find((t) => t.tabProperties.title === title);
   }
   const tabId = tab.tabProperties.tabId;
@@ -169,11 +177,72 @@ export async function pushTab(docId, title, md) {
       { updateParagraphStyle: { range: blank, paragraphStyle: { namedStyleType: 'NORMAL_TEXT' }, fields: 'namedStyleType' } },
     );
   }
-  await call(`${docId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests }) });
+  await update(docId, requests, revisionId);
   return tabId;
 }
 
 function bodyEnd(tab) {
   const content = tab.documentTab?.body?.content ?? [];
   return content.at(-1)?.endIndex ?? 2;
+}
+
+// Tab → markdown, the inverse of layout(). Headings are plain text, so a day heading
+// stays recognisable even if it was restyled. A checkbox item whose text is entirely
+// struck through reads as done: the Docs API does not report ticks themselves.
+export function tabToMarkdown(tab) {
+  const lists = tab.documentTab?.lists ?? {};
+  const blocks = [];
+  let indents = [];
+  for (const el of tab.documentTab?.body?.content ?? []) {
+    const p = el.paragraph;
+    if (!p) continue;
+    const runs = p.elements.filter((e) => e.textRun).map((e) => ({
+      text: e.textRun.content.replace(/\n$/, '').replace(/\u000b/g, ' '), style: e.textRun.textStyle ?? {},
+    })).filter((r) => r.text);
+    const style = p.paragraphStyle?.namedStyleType ?? 'NORMAL_TEXT';
+    if (p.bullet) {
+      const level = p.bullet.nestingLevel ?? 0;
+      const glyph = lists[p.bullet.listId]?.listProperties?.nestingLevels?.[level] ?? {};
+      const checkbox = !glyph.glyphSymbol && (!glyph.glyphType || glyph.glyphType === 'GLYPH_TYPE_UNSPECIFIED');
+      const ordered = !glyph.glyphSymbol && !checkbox && glyph.glyphType !== 'NONE';
+      const done = checkbox && runs.some((r) => r.text.trim()) && runs.every((r) => !r.text.trim() || r.style.strikethrough);
+      const marker = checkbox ? (done ? '- [x] ' : '- [ ] ') : ordered ? '1. ' : '- ';
+      indents = indents.slice(0, level);
+      const indent = indents.reduce((n, m) => n + m, 0);
+      while (indents.length < level) indents.push(2);
+      indents[level] = marker.startsWith('1') ? 3 : 2;
+      const line = ' '.repeat(indent) + marker + inlineMarkdown(runs, { dropStrike: done });
+      if (blocks.at(-1)?.list) blocks.at(-1).text += '\n' + line;
+      else blocks.push({ text: line, list: true });
+      continue;
+    }
+    indents = [];
+    const plain = runs.map((r) => r.text).join('').trim();
+    if (!plain) continue;
+    const heading = style.match(/^HEADING_(\d)$/) ?? (style === 'TITLE' ? [, '1'] : null);
+    blocks.push({ text: heading ? `${'#'.repeat(heading[1])} ${plain}` : inlineMarkdown(runs) });
+  }
+  return blocks.map((b) => b.text).join('\n\n') + '\n';
+}
+
+const escapeText = (s) => s.replace(/[\\`*_[\]]/g, '\\$&');
+const isCode = (style) => /mono|courier|consolas/i.test(style.weightedFontFamily?.fontFamily ?? '');
+
+function inlineMarkdown(runs, { dropStrike = false } = {}) {
+  const key = (st) => JSON.stringify([!!st.bold, !!st.italic, !dropStrike && !!st.strikethrough, st.link?.url ?? '', isCode(st)]);
+  const merged = [];
+  for (const r of runs) {
+    if (merged.length && key(merged.at(-1).style) === key(r.style)) merged.at(-1).text += r.text;
+    else merged.push({ ...r });
+  }
+  return merged.map(({ text, style }) => {
+    const [, lead, core, trail] = text.match(/^(\s*)([\s\S]*?)(\s*)$/);
+    if (!core) return text;
+    let md = isCode(style) ? `\`${core}\`` : escapeText(core);
+    if (!dropStrike && style.strikethrough) md = `~~${md}~~`;
+    if (style.italic) md = `*${md}*`;
+    if (style.bold) md = `**${md}**`;
+    if (style.link?.url) md = `[${md}](${style.link.url})`;
+    return lead + md + trail;
+  }).join('').trim();
 }

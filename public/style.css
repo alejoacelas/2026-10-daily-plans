@@ -2,15 +2,10 @@
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --title-font: var(--font);
   --size: 17px;
-  --bg: #fbfaf8;
-  --text: #2b2a27;
-  --muted: #9a968e;
-  --rule: #e6e3dd;
-  --accent: #b5562f;
-  color-scheme: light dark;
-}
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #1c1b19; --text: #e8e5df; --muted: #7d7a73; --rule: #34322e; --accent: #e08a5f; }
+  /* Google Docs greys and blues (Material 3). */
+  --bg: #ffffff; --text: #1f1f1f; --muted: #5f6368; --rule: #e1e3e1;
+  --accent: #b3261e; --link: #0b57d0; --check: #0b57d0;
+  color-scheme: light; /* always light, whatever the system setting */
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
@@ -62,37 +57,10 @@ footer:hover, body.hints footer { opacity: 1; }
 }
 @media (max-width: 600px) { main { padding: 28px 16px 80px; } footer { display: none; } }
 
-/* Google Docs palettes for Paper. Greys and blues from Docs' Material 3 colours. */
-
-/* Docs page: a white page on Docs' grey canvas. */
-:root[data-look="page"] {
-  --bg: #f9fbfd; --page: #ffffff; --text: #1f1f1f; --muted: #5f6368; --rule: #e1e3e1;
-  --accent: #b3261e; --link: #0b57d0; --check: #0b57d0;
-}
-:root[data-look="page"] main {
-  background: var(--page); margin-top: 32px; margin-bottom: 32px;
-  border: 1px solid var(--rule); border-radius: 2px; box-shadow: 0 1px 3px rgba(60, 64, 67, .12);
-}
-@media (prefers-color-scheme: dark) {
-  :root[data-look="page"] { --bg: #131314; --page: #1f1f1f; --text: #e3e3e3; --muted: #9aa0a6; --rule: #3c4043; --link: #a8c7fa; --check: #a8c7fa; }
-}
-
-/* Docs flat: white like the page itself, grey secondary text, blue only for links and ticks. */
-:root[data-look="flat"] {
-  --bg: #ffffff; --text: #1f1f1f; --muted: #5f6368; --rule: #e1e3e1;
-  --accent: #b3261e; --link: #0b57d0; --check: #0b57d0;
-}
-@media (prefers-color-scheme: dark) {
-  :root[data-look="flat"] { --bg: #1f1f1f; --text: #e3e3e3; --muted: #9aa0a6; --rule: #3c4043; --link: #a8c7fa; --check: #a8c7fa; }
-}
-
-/* Docs tint: the blue-grey of Docs' toolbar as background, blue date and headings. */
+/* Tint: the blue-grey of Docs' toolbar as background, blue date and headings. */
 :root[data-look="tint"] {
   --bg: #f0f4f9; --text: #1f1f1f; --muted: #5f6368; --rule: #c4c7c5;
   --accent: #b3261e; --link: #0b57d0; --check: #0b57d0; --heading: #0b57d0;
 }
 :root[data-look="tint"] #title, :root[data-look="tint"] .ProseMirror h1,
 :root[data-look="tint"] .ProseMirror h2, :root[data-look="tint"] .ProseMirror h3 { color: var(--heading); }
-@media (prefers-color-scheme: dark) {
-  :root[data-look="tint"] { --bg: #1b1c1f; --text: #e3e3e3; --muted: #9aa0a6; --rule: #444746; --link: #a8c7fa; --check: #a8c7fa; --heading: #a8c7fa; }
-}

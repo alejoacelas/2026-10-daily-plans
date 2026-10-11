@@ -88,3 +88,10 @@ export function splitWeek(monday, md) {
     d, joinDay({ plan: plan[d].join('\n').trim(), notes: notes[d].join('\n').trim() }),
   ]));
 }
+
+// Short content fingerprint (FNV-1a), used to tell the server which version an edit started from.
+export function fingerprint(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(16);
+}
