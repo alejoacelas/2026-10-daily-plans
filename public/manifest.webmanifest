@@ -1,0 +1,10 @@
+{
+  "name": "Plans",
+  "short_name": "Plans",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fbfaf8",
+  "theme_color": "#fbfaf8",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

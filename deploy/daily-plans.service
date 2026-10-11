@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily plans editor
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/work/daily-plans
+Environment=DATA_DIR=%h/.local/share/daily-plans
+ExecStart=%h/.local/bin/op-agent run --env-file %h/work/daily-plans/.env.tpl -- /usr/bin/node server/server.mjs
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

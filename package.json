@@ -1,0 +1,22 @@
+{
+  "name": "daily-plans",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild client/main.js --bundle --minify --format=esm --outfile=public/app.js",
+    "start": "node server/server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "marked": "18.0.13"
+  },
+  "devDependencies": {
+    "@tiptap/core": "3.31.3",
+    "@tiptap/extension-list": "3.31.3",
+    "@tiptap/extensions": "3.31.3",
+    "@tiptap/markdown": "3.31.3",
+    "@tiptap/pm": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
+    "esbuild": "0.28.2"
+  }
+}

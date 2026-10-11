@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plans</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // Look: ?look=paper|writer|book, remembered on this device.
+    try {
+      const look = new URLSearchParams(location.search).get('look') || localStorage.getItem('look');
+      if (look) { localStorage.setItem('look', look); document.documentElement.dataset.look = look; }
+    } catch {}
+  </script>
+</head>
+<body>
+  <main>
+    <header>
+      <button id="title" title="Go to today"></button>
+      <span id="status"></span>
+      <span id="week"></span>
+    </header>
+    <div id="editor"></div>
+  </main>
+  <footer>⌘[ ⌘] day · ⌘⇧[ ⌘⇧] week · ⌘\ week view · ⌘S push</footer>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
