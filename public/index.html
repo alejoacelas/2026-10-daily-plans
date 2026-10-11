@@ -8,6 +8,8 @@
   <link rel="icon" href="icon.svg">
   <link rel="stylesheet" href="style.css">
   <script>
+    // Relative URLs need the trailing slash when served under /plans.
+    if (!location.pathname.endsWith('/')) location.replace(location.pathname + '/' + location.search + location.hash);
     // Look: ?look=paper|writer|book, remembered on this device.
     try {
       const look = new URLSearchParams(location.search).get('look') || localStorage.getItem('look');
