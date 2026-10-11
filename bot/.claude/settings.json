@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "TodoWrite",
+      "Edit(~/.local/share/daily-plans/days/**)",
+      "Write(~/.local/share/daily-plans/days/**)",
+      "Edit(~/work/daily-plans/**)",
+      "Write(~/work/daily-plans/**)"
+    ],
+    "deny": [
+      "Bash",
+      "WebFetch",
+      "WebSearch",
+      "NotebookEdit",
+      "Agent",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.claude.json)",
+      "Read(~/.codex/auth.json)",
+      "Read(~/.config/agent-server/**)",
+      "Read(~/.config/orca/**)",
+      "Read(~/.orca/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.gnupg/**)",
+      "Read(//proc/**)",
+      "Edit(~/work/daily-plans/.git/**)",
+      "Write(~/work/daily-plans/.git/**)",
+      "Edit(~/work/daily-plans/bot/**)",
+      "Write(~/work/daily-plans/bot/**)",
+      "Edit(~/work/daily-plans/deploy/**)",
+      "Write(~/work/daily-plans/deploy/**)"
+    ]
+  }
+}

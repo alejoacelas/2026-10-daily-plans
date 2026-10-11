@@ -1,0 +1,13 @@
+[Unit]
+Description=Telegram bot that talks to Claude Code
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/work/daily-plans/bot
+Environment=STATE_DIR=%h/.local/share/plans-bot
+ExecStart=%h/.local/bin/op-agent run --env-file %h/work/daily-plans/bot/.env.tpl -- /usr/bin/node bot.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
