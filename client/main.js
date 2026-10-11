@@ -23,7 +23,7 @@ const apiUrl = (v) => `api/${v.week ? 'week' : 'day'}?date=${v.date}`;
 const editor = new Editor({
   element: $('editor'),
   extensions: [StarterKit, TaskList, TaskItem.configure({ nested: true }), Markdown],
-  autofocus: true,
+  editable: false, // until the first view has loaded, so early typing isn't overwritten
 });
 
 let view = viewFromHash();
@@ -116,11 +116,13 @@ function placeCursor() {
 
 async function go(next) {
   await flush();
+  editor.setEditable(false);
   view = next;
   render();
   const text = await (await fetch(apiUrl(view))).text();
   serverText = text;
   setContent(view.week ? text : withNotesHeading(text));
+  editor.setEditable(true);
   placeCursor();
 }
 
