@@ -29,6 +29,7 @@ const editor = new Editor({
 let view = viewFromHash();
 let loading = false;
 let dirty = false;
+let editingUrl = null;
 let serverText = '';
 let timer = null;
 let hintTimer = null;
@@ -54,7 +55,8 @@ function flush() {
   clearTimeout(timer);
   if (!dirty) return saves;
   dirty = false;
-  const url = apiUrl(view);
+  if (editingUrl !== apiUrl(view)) return saves; // never save one view's text under another
+  const url = editingUrl;
   const body = editor.getMarkdown();
   serverText = body;
   setStatus('saving');
@@ -63,8 +65,9 @@ function flush() {
 }
 
 editor.on('update', () => {
-  if (loading) return;
+  if (loading || !editor.isEditable) return;
   dirty = true;
+  editingUrl = apiUrl(view);
   clearTimeout(timer);
   timer = setTimeout(flush, 300);
 });
@@ -116,13 +119,13 @@ function placeCursor() {
 
 async function go(next) {
   await flush();
-  editor.setEditable(false);
+  editor.setEditable(false, false);
   view = next;
   render();
   const text = await (await fetch(apiUrl(view))).text();
   serverText = text;
   setContent(view.week ? text : withNotesHeading(text));
-  editor.setEditable(true);
+  editor.setEditable(true, false);
   placeCursor();
 }
 
