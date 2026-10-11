@@ -15,3 +15,6 @@ checkbox tick.
 
 Click the date to return to today. Add `?look=tint` (blue-grey background, blue headings) or `?look=flat` (the default) to
 the address to change the look; the choice is remembered on that device.
+
+The icon is a crop of Katsushika Hokusai's *Under the Wave off Kanagawa* (about 1831), from
+[the Metropolitan Museum of Art's Open Access image](https://www.metmuseum.org/art/collection/search/45434) (public domain, CC0).
