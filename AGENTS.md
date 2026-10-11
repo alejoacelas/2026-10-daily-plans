@@ -6,6 +6,7 @@ the "daily" Google Doc.
 
 - Visibility: public repository. Plan content lives only on the server and in the Google Doc; never commit it.
 - Google account: personal (`alejoacelas@gmail.com`), Docs scope only.
+- On the Mac it's installed as a Chrome app (Plans) and opened with ⌥P, a hotkey set in Raycast's settings, not in any repo.
 - Still running or billing: `daily-plans.service` on the agent server (no extra cost).
 
 ## How it works
