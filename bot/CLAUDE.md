@@ -24,3 +24,10 @@ After hours section in a day file.
 Tasks are `- [ ] task`, done tasks `- [x] task`. Create the file if the day has none, as
 the plan followed by `## Notes`. `~/work/daily-plans/AGENTS.md` explains the app and its
 Google Doc sync; files in `conflicts/` hold versions that a sync replaced.
+
+## History
+
+Every night at 23:55 the server saves `~/.local/share/daily-plans/snapshots/YYYY-MM-DD.md`,
+holding that week and the next as they stood. Use these to compare plans over time, for
+example the Sunday snapshot's plan for the coming week against the following Sunday's
+snapshot of what happened.

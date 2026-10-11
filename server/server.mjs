@@ -17,6 +17,8 @@ const DATA = process.env.DATA_DIR ?? path.join(ROOT, 'data');
 const DAYS = path.join(DATA, 'days');
 const WEEKS = path.join(DATA, 'weeks'); // the After hours section, one file per week (by Monday)
 const CONFLICTS = path.join(DATA, 'conflicts');
+const SNAPSHOTS = path.join(DATA, 'snapshots'); // end-of-day copies of this week and next
+const TIME_ZONE = 'Europe/London';
 const STATE = path.join(DATA, 'state.json');
 const PORT = Number(process.env.PORT ?? 8770);
 const DOC_ID = process.env.GOOGLE_DOC_ID;
@@ -25,6 +27,7 @@ const SYNC_MS = 10_000;
 fs.mkdirSync(DAYS, { recursive: true });
 fs.mkdirSync(WEEKS, { recursive: true });
 fs.mkdirSync(CONFLICTS, { recursive: true });
+fs.mkdirSync(SNAPSHOTS, { recursive: true });
 if (!fs.existsSync(path.join(DATA, '.git'))) git('init', '-q');
 
 const EMPTY = joinDay({ plan: '', notes: '' });
@@ -71,12 +74,37 @@ function git(...args) {
 // History of every day file: commit pending changes every ten minutes.
 function snapshot() {
   try {
-    if (!git('status', '--porcelain', 'days', 'weeks', 'conflicts').trim()) return;
-    git('add', 'days', 'weeks', 'conflicts');
+    if (!git('status', '--porcelain', 'days', 'weeks', 'conflicts', 'snapshots').trim()) return;
+    git('add', 'days', 'weeks', 'conflicts', 'snapshots');
     git('-c', 'user.name=daily-plans', '-c', 'user.email=daily-plans@localhost', 'commit', '-qm', 'snapshot');
   } catch (e) {
     console.error('snapshot failed:', e.message);
   }
+}
+
+function localNow() {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date()).map((p) => [p.type, p.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, minutes: Number(parts.hour) * 60 + Number(parts.minute) };
+}
+
+// At 23:55 local time, save this week and next week as they stand, in plain markdown, and
+// tag the day's state in Git (eod/YYYY-MM-DD) so any two days can be compared.
+function endOfDay() {
+  const { date, minutes } = localNow();
+  const file = path.join(SNAPSHOTS, `${date}.md`);
+  if (minutes < 23 * 60 + 55 || fs.existsSync(file)) return;
+  const monday = mondayOf(date);
+  const weeks = [monday, addDays(monday, 7)].map((m) => `# ${tabTitle(m)}\n\n${weekView(m).replace(/^## /gm, '### ')}`);
+  writeFile(file, `Snapshot of ${date}, end of day.\n\n${weeks.join('\n')}`);
+  snapshot();
+  try {
+    git('tag', '-f', `eod/${date}`);
+  } catch (e) {
+    console.error('tag failed:', e.message);
+  }
+  console.log(`saved the end-of-day snapshot for ${date}`);
 }
 
 // One check: for each week, compare each day on both sides with the version both sides
@@ -234,4 +262,5 @@ createServer(async (req, res) => {
 
 setInterval(sync, SYNC_MS);
 setInterval(snapshot, 10 * 60_000);
+setInterval(endOfDay, 60_000);
 sync();

@@ -14,6 +14,9 @@ checkbox tick.
 | ⌘\ | Switch between the day and its week (from the week, opens the day under the cursor) |
 | ⌘S | Sync with the Google Doc now |
 
+Every night the server saves a snapshot of this week and next, so you can compare the plan
+you started a week with against how it went (ask the Telegram bot).
+
 Click the date to return to today. Add `?look=tint` (blue-grey background, blue headings) or `?look=flat` (the default) to
 the address to change the look; the choice is remembered on that device.
 

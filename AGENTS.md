@@ -18,6 +18,9 @@ the "daily" Google Doc.
   Saving the week view splits it back into day files; whichever view saves last wins.
 - After hours is one section per week, stored in `DATA_DIR/weeks/<Monday>.md` and shown below
   Notes in every day view and in the week view. Sync treats it as an eighth part of the week.
+- At 23:55 London time the server writes `DATA_DIR/snapshots/YYYY-MM-DD.md` (this week and
+  next week as the week view shows them) and tags the day's commit `eod/YYYY-MM-DD`. Compare
+  days with `git -C DATA_DIR diff eod/2026-10-11 eod/2026-10-18 -- days weeks`.
 - Every 10 s the server reads the whole Doc (`server/server.mjs`, `syncOnce`). Each week's tab is
   named `w41, Oct 05` (ISO week, Monday's date). For each day it compares both sides with the
   version each side had at the last sync, kept per side in `DATA_DIR/state.json`: days changed
