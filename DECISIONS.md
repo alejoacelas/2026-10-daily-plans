@@ -7,6 +7,10 @@
 - [Copy whole days, last writer wins, keep the loser.](#whole-day-sync)
 - [Use only the Docs API's `documents` scope.](#docs-scope-only)
 
+### History
+
+- [Nightly markdown snapshots are a stopgap for the bot.](#nightly-snapshots)
+
 ### Editor
 
 - [Always light.](#always-light)
@@ -27,6 +31,13 @@ The server's token can edit Google Docs but not read or delete Drive files, so m
 conversion is done in `server/gdocs.mjs` instead of with `gdoc` (which needs the Drive scope).
 The cost is that only markdown features sync; other Doc formatting is overwritten.
 
+### Nightly snapshots
+
+The Git history in the data folder (commits every ten minutes, `eod/YYYY-MM-DD` tags) is the
+lasting record. The plain-markdown copies in `snapshots/` exist only because the Telegram bot
+has no shell and so cannot read Git history. Once the bot can run `git`, remove the snapshot
+files and have it compare `eod/` tags instead.
+
 ### Always light
 
 Alejandro asked for a light page regardless of the system appearance, using Google Docs' greys
@@ -34,4 +45,6 @@ and blues. `?look=tint` is the alternative palette.
 
 ## Decision log
 
+- 2026-10-11: Nightly `snapshots/` markdown files as a temporary way for the bot to compare
+  plans over time; drop them when the bot gets Git access.
 - 2026-10-11: Two-way sync with last writer wins, replacing the hourly afternoon push.
