@@ -1,4 +1,4 @@
-// Replace one tab of a Google Doc with formatted markdown, using only the Docs API
+// Read and replace tabs of a Google Doc as markdown, using only the Docs API
 // (scope: documents). Supports headings, paragraphs, bold/italic/strike/code/links,
 // and nested bullet, numbered and checkbox lists.
 import { marked } from 'marked';
@@ -122,27 +122,38 @@ export function flatTabs(tabs) {
 
 export const getDoc = (docId) => call(`${docId}?includeTabsContent=true`);
 
-function update(docId, requests, revisionId) {
+async function update(docId, requests, revisionId) {
   const writeControl = revisionId ? { requiredRevisionId: revisionId } : undefined;
-  return call(`${docId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests, writeControl }) });
+  const res = await call(`${docId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests, writeControl }) });
+  return res.writeControl.requiredRevisionId;
 }
 
-// Write `md` into the tab titled `title`, creating it (or claiming an empty "Tab 1").
-// `doc` is the document as last read; the write is refused if the doc changed since then.
-export async function pushTab(docId, title, md, doc) {
-  let revisionId = doc.revisionId;
-  let tabs = flatTabs(doc.tabs);
-  let tab = tabs.find((t) => t.tabProperties.title === title);
-  if (!tab) {
-    const lone = tabs.length === 1 && tabs[0];
-    const blank = lone && lone.tabProperties.title === 'Tab 1' && bodyEnd(lone) <= 2;
-    const request = blank
-      ? { updateDocumentTabProperties: { tabProperties: { tabId: lone.tabProperties.tabId, title }, fields: 'title' } }
-      : { addDocumentTab: { tabProperties: { title } } };
-    revisionId = (await update(docId, [request], revisionId)).writeControl.requiredRevisionId;
-    doc = await getDoc(docId);
-    tab = flatTabs(doc.tabs).find((t) => t.tabProperties.title === title);
+// Creates a tab (a child of `parentTabId` when given) and returns { tabId, revisionId }.
+// A document's lone empty "Tab 1" is claimed instead of adding a root tab beside it.
+export async function addTab(docId, doc, { title, parentTabId, index }, revisionId) {
+  const tabs = flatTabs(doc.tabs);
+  const lone = !parentTabId && tabs.length === 1 && tabs[0];
+  if (lone && lone.tabProperties.title === 'Tab 1' && bodyEnd(lone) <= 2) {
+    const tabId = lone.tabProperties.tabId;
+    revisionId = await update(docId, [{ updateDocumentTabProperties: { tabProperties: { tabId, title }, fields: 'title' } }], revisionId);
+    return { tabId, revisionId };
   }
+  const tabProperties = { title, ...(parentTabId && { parentTabId }), ...(index !== undefined && { index }) };
+  const res = await call(`${docId}:batchUpdate`, {
+    method: 'POST',
+    body: JSON.stringify({ requests: [{ addDocumentTab: { tabProperties } }], writeControl: { requiredRevisionId: revisionId } }),
+  });
+  return { tabId: res.replies[0].addDocumentTab.tabProperties.tabId, revisionId: res.writeControl.requiredRevisionId };
+}
+
+export const renameTab = (docId, tabId, title, revisionId) =>
+  update(docId, [{ updateDocumentTabProperties: { tabProperties: { tabId, title }, fields: 'title' } }], revisionId);
+
+export const deleteTab = (docId, tabId, revisionId) => update(docId, [{ deleteTab: { tabId } }], revisionId);
+
+// Replaces the text of tab `tab` (as last read) with `md`. The write is refused if the
+// document changed since `revisionId`; returns the new revision.
+export async function writeTab(docId, tab, md, revisionId) {
   const tabId = tab.tabProperties.tabId;
   const end = bodyEnd(tab);
   const { text, paragraphs, spans, lists } = layout(md);
@@ -170,15 +181,14 @@ export async function pushTab(docId, title, md, doc) {
       })),
     );
   } else {
-    // Empty week: clear any leftover list or heading formatting on the remaining paragraph.
+    // Empty tab: clear any leftover list or heading formatting on the remaining paragraph.
     const blank = { startIndex: 1, endIndex: 2, tabId };
     requests.push(
       { deleteParagraphBullets: { range: blank } },
       { updateParagraphStyle: { range: blank, paragraphStyle: { namedStyleType: 'NORMAL_TEXT' }, fields: 'namedStyleType' } },
     );
   }
-  await update(docId, requests, revisionId);
-  return tabId;
+  return update(docId, requests, revisionId);
 }
 
 function bodyEnd(tab) {

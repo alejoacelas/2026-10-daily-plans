@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composeWeek, dayLabel, isoWeek, splitAfter, splitDay, splitWeek, tabTitle } from '../shared/plans.js';
+import {
+  cleanTabName, composeDay, dayLabel, isoWeek, splitDay, splitDayView, splitWeekNotes, splitWeekPlans, tabTitle,
+  weekNotes, weekPlans,
+} from '../shared/plans.js';
 import { layout } from '../server/gdocs.mjs';
 
 const monday = '2026-10-05';
-const days = {
-  '2026-10-07': '- [ ] Draft proposal\n- [x] Gym\n\n## Notes\n\nSam prefers Thursday\n',
-  '2026-10-11': '### Evening\n\nRead\n\n## Notes\n',
-};
+const plans = { '2026-10-07': '- [ ] Draft proposal\n- [x] Gym', '2026-10-11': '### Evening\n\nRead' };
+const notes = { '2026-10-07': 'Sam prefers Thursday' };
 
 test('labels and tab titles', () => {
   assert.equal(dayLabel('2026-10-11'), 'Sun, Oct 11');
@@ -16,22 +17,43 @@ test('labels and tab titles', () => {
   assert.equal(tabTitle(monday), 'w41, Oct 05');
 });
 
-test('week round-trips into the same days', () => {
-  const back = splitWeek(monday, composeWeek(monday, days));
-  assert.equal(back['2026-10-07'], days['2026-10-07']);
-  assert.equal(back['2026-10-11'], days['2026-10-11']);
-  assert.deepEqual(splitDay(back['2026-10-05']), { plan: '', notes: '' });
+test('week plans round-trip into the same days', () => {
+  const back = splitWeekPlans(monday, weekPlans(monday, plans));
+  assert.equal(back['2026-10-07'], plans['2026-10-07']);
+  assert.equal(back['2026-10-11'], plans['2026-10-11']);
+  assert.equal(back['2026-10-05'], '');
 });
 
-test('doc version drops empty days and empty notes', () => {
-  assert.equal(composeWeek(monday, days, { forDoc: true }),
-    '## Wed, Oct 7\n\n- [ ] Draft proposal\n- [x] Gym\n\n### Evening\n\nRead\n\n'.replace('### Evening', '## Sun, Oct 11\n\n### Evening') +
-    '## Notes\n\n**Wed, Oct 7**\n\nSam prefers Thursday\n');
+test('the Doc version of the plans drops empty days', () => {
+  assert.equal(weekPlans(monday, plans, { forDoc: true }),
+    '## Wed, Oct 7\n\n- [ ] Draft proposal\n- [x] Gym\n\n## Sun, Oct 11\n\n### Evening\n\nRead\n');
 });
 
-test('notes typed in the week view land on their day', () => {
-  const md = composeWeek(monday, days).replace('## After hours', '**Fri, Oct 9**\n\nnew note\n\n## After hours');
-  assert.equal(splitDay(splitWeek(monday, md)['2026-10-09']).notes, 'new note');
+test('week notes list only days with notes and split back by label', () => {
+  const md = weekNotes(monday, notes);
+  assert.equal(md, '**Wed, Oct 7**\n\nSam prefers Thursday\n');
+  const typed = `${md}\n**Fri, Oct 9**\n\nnew note\n`;
+  assert.equal(splitWeekNotes(monday, typed)['2026-10-09'], 'new note');
+  assert.equal(splitWeekNotes(monday, typed)['2026-10-07'], 'Sam prefers Thursday');
+});
+
+test('a day view holds the plan, the shared week tabs, then the notes', () => {
+  const view = composeDay({ plan: '- run', notes: 'note' }, [{ name: 'After hours', md: '- read' }, { name: 'Reading', md: '' }]);
+  assert.equal(view, '- run\n\n## After hours\n\n- read\n\n## Reading\n\n## Notes\n\nnote\n');
+  const back = splitDayView(view, ['After hours', 'Reading']);
+  assert.deepEqual(back, { plan: '- run', notes: 'note', shared: { 'After hours': '- read', Reading: '' } });
+  assert.deepEqual(splitDay('- run\n\n## Notes\n\nnote\n'), { plan: '- run', notes: 'note' });
+});
+
+test('headings that are not shared tabs stay in the text', () => {
+  const back = splitDayView('## Morning\n\n- run\n\n## Notes\n\n## After hours\n\nx\n', ['After hours']);
+  assert.equal(back.plan, '## Morning\n\n- run');
+  assert.equal(back.notes, '## After hours\n\nx');
+});
+
+test('tab names are safe file names', () => {
+  assert.equal(cleanTabName('  a/b\\c  '), 'a b c');
+  assert.equal(cleanTabName('..hidden'), 'hidden');
 });
 
 test('layout indents nested list items and records one list range', () => {
@@ -39,18 +61,4 @@ test('layout indents nested list items and records one list range', () => {
   assert.equal(text, 'a\n\tb\nc\n');
   assert.deepEqual(lists, [{ start: 0, end: 7, preset: 'BULLET_CHECKBOX' }]);
   assert.ok(spans.some((s) => s.style.strikethrough && text.slice(s.start, s.end) === 'b'));
-});
-
-test('After hours closes the week and stays out of the days', () => {
-  const md = composeWeek(monday, days, { after: '- Movie night' });
-  assert.ok(md.endsWith('## After hours\n\n- Movie night\n'));
-  assert.equal(splitAfter(md).after, '- Movie night');
-  assert.equal(splitWeek(monday, md)['2026-10-11'], days['2026-10-11']);
-  assert.ok(!composeWeek(monday, days, { forDoc: true }).includes('After hours'));
-});
-
-test('a day view with After hours splits back into the day and the shared section', () => {
-  const view = '- run\n\n## Notes\n\nnote\n\n## After hours\n\n- read\n';
-  assert.deepEqual(splitDay(view), { plan: '- run', notes: 'note' });
-  assert.equal(splitAfter(view).after, '- read');
 });

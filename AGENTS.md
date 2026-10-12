@@ -2,7 +2,7 @@
 
 A minimal WYSIWYG markdown editor for daily plans, hosted on the agent server
 (`~/best/projects/2026-09-26-agent-server`). Each week syncs both ways with its own tab of
-the "daily" Google Doc.
+the "daily" Google Doc, with child tabs for Notes and for the extra tabs.
 
 - Visibility: public repository. Plan content lives only on the server and in the Google Doc; never commit it.
 - Google account: personal (`alejoacelas@gmail.com`), Docs scope only.
@@ -13,21 +13,30 @@ the "daily" Google Doc.
 
 - One markdown file per day in `DATA_DIR/days/YYYY-MM-DD.md`: the plan, then `## Notes`, then notes.
   `DATA_DIR` is a Git repository the server commits to every ten minutes, so every version is recoverable.
-- The week view (`shared/plans.js`) is each day's plan under `## Mon, Oct 5`, then `## Notes`
-  with each non-empty day's notes under a bold `**Mon, Oct 5**` line, then `## After hours`.
-  Saving the week view splits it back into day files; whichever view saves last wins.
-- After hours is one section per week, stored in `DATA_DIR/weeks/<Monday>.md` and shown below
-  Notes in every day view and in the week view. Sync treats it as an eighth part of the week.
+- Both views have tabs (formats in `shared/plans.js`):
+  - The week's main tab is each day's plan under `## Mon, Oct 5`. Its Notes tab is each
+    non-empty day's notes under a bold `**Mon, Oct 5**` line. Saving either splits it back into
+    day files; whichever view saves last wins.
+  - Extra week tabs (After hours by default) live in `DATA_DIR/weeks/<Monday>/<Tab name>.md`,
+    with `tabs.json` holding their order, a stable id each, and whether each is shared with the
+    days. A week with no folder yet shows the latest earlier week's tabs, empty.
+  - A day's main tab is its plan, then each shared week tab under `## <Tab name>`, then
+    `## Notes`. Saving it writes the day file and the shared tabs' files.
+  - A day's own tabs live in `DATA_DIR/days/YYYY-MM-DD/`, laid out like a week's.
+  - A `.md` file added to one of these folders by hand becomes a tab at the end.
 - At 23:55 London time the server writes `DATA_DIR/snapshots/YYYY-MM-DD.md` (this week and
-  next week as the week view shows them) and tags the day's commit `eod/YYYY-MM-DD`. Compare
+  next week, every tab included) and tags the day's commit `eod/YYYY-MM-DD`. Compare
   days with `git -C DATA_DIR diff eod/2026-10-11 eod/2026-10-18 -- days weeks`.
   The snapshot files are temporary; see `DECISIONS.md`.
 - Every 10 s the server reads the whole Doc (`server/server.mjs`, `syncOnce`). Each week's tab is
-  named `w41, Oct 05` (ISO week, Monday's date). For each day it compares both sides with the
-  version each side had at the last sync, kept per side in `DATA_DIR/state.json`: days changed
-  only in the Doc are written to the app; any day changed in the app makes the server rewrite the
-  whole tab. A day changed on both sides since the last check takes the app's version, and the
-  Doc's copy goes to `DATA_DIR/conflicts/`.
+  named `w41, Oct 05` (ISO week, Monday's date) and holds the plans. Its child tabs are Notes,
+  each week tab by name, and each day tab as `Tue, Oct 13 · Call prep`. Sync compares parts (a
+  day's plan, a day's notes, a tab's text) with the version each side had at the last sync, kept
+  per side in `DATA_DIR/state.json` along with the Doc tab ids. Parts changed only in the Doc are
+  written to the app; a part changed in the app makes the server rewrite its whole Doc tab. A
+  part changed on both sides takes the app's version, and the Doc's copy goes to
+  `DATA_DIR/conflicts/`. Renaming or removing a tab in the app renames or deletes its Doc tab;
+  tabs added or renamed in the Doc are ignored.
 - Doc writes carry the revision they were based on (`requiredRevisionId`), so an edit made in the
   Doc between the server's read and its write makes the write fail and wait for the next check.
 - The editor saves 300 ms after typing stops and sends the version it started from (`X-Version`).

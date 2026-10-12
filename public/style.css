@@ -19,9 +19,28 @@ header {
   padding-bottom: 14px; margin-bottom: 20px; border-bottom: 1px solid var(--rule);
 }
 #title {
-  all: unset; cursor: pointer; font-family: var(--title-font); font-size: 22px; font-weight: 600; letter-spacing: -0.01em;
+  all: unset; cursor: pointer; white-space: nowrap; font-family: var(--title-font); font-size: 22px; font-weight: 600; letter-spacing: -0.01em;
 }
-#week { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+#flash { color: var(--muted); font-size: 14px; }
+
+/* Tabs: right-aligned in the title line, the main tab ("week" / "day") last. */
+#tabs { margin-left: auto; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
+#tabs button { all: unset; cursor: pointer; }
+#tabs button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+#tabs .tab { display: inline-flex; align-items: center; gap: 6px; }
+#tabs .name { color: var(--muted); font-size: 15px; }
+#tabs .name:hover, #tabs .on .name { color: var(--text); }
+#tabs .on .name { font-weight: 600; }
+#tabs .add { color: var(--muted); font-size: 17px; line-height: 1; opacity: 0; transition: opacity .12s; }
+header:hover #tabs .add, #tabs .add:focus-visible { opacity: .6; }
+#tabs .add:hover { opacity: 1; }
+#tabs .rename { font: inherit; font-size: 15px; font-weight: 600; color: var(--text); border: 0; border-bottom: 1px solid var(--rule); padding: 0; outline: none; background: transparent; }
+/* A week tab shared with each day has a grey dot; a tab that isn't shows a ring on hover. */
+#tabs .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1.25px var(--muted); opacity: 0; transition: opacity .12s; }
+#tabs .tab:hover .dot, #tabs .dot:focus-visible { opacity: .5; }
+#tabs .dot:hover { opacity: 1; }
+#tabs .dot.on { background: var(--muted); opacity: .55; }
+#tabs .dot.on:hover { opacity: 1; }
 #status { width: 6px; height: 6px; border-radius: 50%; align-self: center; }
 #status.saving { background: var(--muted); }
 #status.error { background: var(--accent); }

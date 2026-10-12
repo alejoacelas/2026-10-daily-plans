@@ -2,7 +2,7 @@ import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import { Markdown } from '@tiptap/markdown';
-import { addDays, dayLabel, isDate, isoWeek, mondayOf, tabTitle, weekDates } from '../shared/plans.js';
+import { addDays, dayLabel, isDate, mondayOf, tabTitle, weekDates } from '../shared/plans.js';
 
 const $ = (id) => document.getElementById(id);
 const pad = (n) => String(n).padStart(2, '0');
@@ -13,12 +13,29 @@ function today() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// The view is a day, or the week containing `date` (#w2026-10-11).
+// The view is a day, or the week containing `date`, and one of its tabs: null for the
+// main tab, 'notes' for the week's Notes, or a tab id. The hash names the tab:
+// #2026-10-11, #w2026-10-11/Notes, #2026-10-11/Call%20prep.
 function viewFromHash() {
-  const m = location.hash.match(/^#(w?)(\d{4}-\d{2}-\d{2})$/);
-  return m && isDate(m[2]) ? { week: m[1] === 'w', date: m[2] } : { week: false, date: today() };
+  const m = decodeURIComponent(location.hash).match(/^#(w?)(\d{4}-\d{2}-\d{2})(?:\/(.+))?$/);
+  return m && isDate(m[2]) ? { week: m[1] === 'w', date: m[2], tabName: m[3] ?? null } : { week: false, date: today(), tab: null };
 }
-const apiUrl = (v) => `api/${v.week ? 'week' : 'day'}?date=${v.date}`;
+
+function apiUrl(v) {
+  if (v.tab === 'notes') return `api/notes?date=${v.date}`;
+  if (v.tab) return `api/tab?date=${v.date}&kind=${v.week ? 'week' : 'day'}&id=${v.tab}`;
+  return `api/${v.week ? 'week' : 'day'}?date=${v.date}`;
+}
+
+let tabs = { week: [], day: [] }; // the tabs of the view's week and day, from the server
+
+// The tabs shown in the title line, left to right; the main tab comes last.
+function tabList(v = view) {
+  const own = (v.week ? tabs.week : tabs.day).map((t) => ({ key: t.id, name: t.name, shared: t.shared, own: true }));
+  return v.week
+    ? [{ key: 'notes', name: 'Notes' }, ...own, { key: null, name: 'week' }]
+    : [...own, { key: null, name: 'day' }];
+}
 
 const editor = new Editor({
   element: $('editor'),
@@ -83,12 +100,104 @@ function setContent(md) {
   loading = false;
 }
 
+function viewHash() {
+  const current = tabList().find((t) => t.key === view.tab);
+  return `#${view.week ? 'w' : ''}${view.date}${current?.key ? `/${encodeURIComponent(current.name)}` : ''}`;
+}
+
 function render() {
-  const monday = mondayOf(view.date);
-  $('title').textContent = view.week ? tabTitle(monday) : dayLabel(view.date);
-  $('week').textContent = view.week ? 'week' : `w${pad(isoWeek(view.date))}`;
-  document.title = $('title').textContent;
-  history.replaceState(null, '', `#${view.week ? 'w' : ''}${view.date}`);
+  const current = tabList().find((t) => t.key === view.tab);
+  $('title').textContent = view.week ? tabTitle(mondayOf(view.date)) : dayLabel(view.date);
+  document.title = current?.key ? `${current.name} · ${$('title').textContent}` : $('title').textContent;
+  history.replaceState(null, '', viewHash());
+  renderTabs();
+}
+
+function renderTabs() {
+  const nav = $('tabs');
+  nav.replaceChildren();
+  const add = el('button', { className: 'add', title: 'New tab', textContent: '+' });
+  add.onclick = addTab;
+  nav.append(add);
+  for (const t of tabList()) {
+    const tab = el('span', { className: `tab${t.key === view.tab ? ' on' : ''}` });
+    const name = el('button', { className: 'name', textContent: t.name });
+    name.onclick = () => t.key !== view.tab && go({ ...view, tab: t.key });
+    if (t.own) {
+      name.title = 'Double-click to rename';
+      name.ondblclick = () => rename(t, name);
+    }
+    tab.append(name);
+    if (t.own && view.week) {
+      const dot = el('button', {
+        className: `dot${t.shared ? ' on' : ''}`,
+        title: t.shared ? 'Shown in each day. Click to keep it in the week only.' : 'Show in each day',
+      });
+      dot.setAttribute('aria-pressed', !!t.shared);
+      dot.onclick = () => changeTab('week', { op: 'share', id: t.key, shared: !t.shared });
+      tab.append(dot);
+    }
+    nav.append(tab);
+  }
+}
+
+function el(tag, props) {
+  return Object.assign(document.createElement(tag), props);
+}
+
+async function changeTab(kind, change) {
+  await flush();
+  const res = await fetch(`api/tabs?date=${view.date}`, { method: 'POST', body: JSON.stringify({ kind, ...change }) });
+  if (!res.ok) return setStatus('error');
+  const tab = await res.json();
+  await loadTabs(view.date);
+  render();
+  return tab;
+}
+
+async function addTab() {
+  editor.view.dom.blur(); // otherwise loading the new tab hands focus back to the editor
+  const tab = await changeTab(view.week ? 'week' : 'day', { op: 'add', name: 'Untitled' });
+  if (!tab) return;
+  await go({ ...view, tab: tab.id }, { place: false });
+  const button = [...$('tabs').querySelectorAll('.tab.on .name')][0];
+  if (button) rename({ key: tab.id, name: tab.name }, button);
+}
+
+// Inline rename: Enter or leaving the field saves, Escape cancels, an empty name removes the tab.
+function rename(t, button) {
+  const input = el('input', { className: 'rename', value: t.name, size: Math.max(t.name.length, 4) });
+  input.oninput = () => (input.size = Math.max(input.value.length, 4));
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    const kind = view.week ? 'week' : 'day';
+    if (save && !name) {
+      if (confirm(`Remove the tab "${t.name}"? Its text is kept in conflicts/ on the server.`)) {
+        await changeTab(kind, { op: 'remove', id: t.key });
+        return go({ ...view, tab: null });
+      }
+    } else if (save && name !== t.name) {
+      await changeTab(kind, { op: 'rename', id: t.key, name });
+    }
+    render();
+    editor.commands.focus();
+  };
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  };
+  input.onblur = () => finish(true);
+  button.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+async function loadTabs(date) {
+  const res = await fetch(`api/tabs?date=${date}`);
+  if (res.ok) tabs = await res.json();
 }
 
 // Position just inside the end of the first top-level node matching `test`.
@@ -101,12 +210,17 @@ function endOf(test) {
 }
 
 function placeCursor() {
-  if (view.week) {
+  if (view.week && view.tab === 'notes') {
+    const pos = endOf((n) => n.textContent.trim() === dayLabel(view.date));
+    editor.chain().focus().setTextSelection(pos ?? 1).scrollIntoView().run();
+    return;
+  }
+  if (view.week && !view.tab) {
     const pos = endOf((n) => n.type.name === 'heading' && n.textContent.trim() === dayLabel(view.date));
     editor.chain().focus().setTextSelection(pos ?? 1).scrollIntoView().run();
     return;
   }
-  if (editor.state.doc.firstChild.type.name === 'heading') {
+  if (!view.tab && editor.state.doc.firstChild.type.name === 'heading') {
     // Empty plan: open a line above "Notes" to type in.
     loading = true;
     editor.chain().insertContentAt(0, { type: 'paragraph' }).run();
@@ -116,17 +230,24 @@ function placeCursor() {
   window.scrollTo(0, 0);
 }
 
-async function go(next) {
+// Opens a view. `next.tab` is a tab key; `next.tabName` (from the hash or from another
+// day or week) picks a tab by name instead, falling back to the main tab.
+async function go(next, { place = true } = {}) {
   await flush();
   editor.setEditable(false, false);
-  view = next;
+  await loadTabs(next.date);
+  const list = tabList(next);
+  const wanted = next.tabName !== undefined
+    ? list.find((t) => t.key && t.name.toLowerCase() === next.tabName?.toLowerCase())
+    : list.find((t) => t.key === next.tab);
+  view = { week: next.week, date: next.date, tab: wanted?.key ?? null };
   render();
   const res = await fetch(apiUrl(view));
   const text = await res.text();
   versions.set(apiUrl(view), res.headers.get('X-Version'));
   setContent(text);
   editor.setEditable(true, false);
-  placeCursor();
+  if (place) placeCursor();
 }
 
 // The day whose section holds the cursor in the week view.
@@ -138,17 +259,16 @@ function dayAtCursor() {
     if (offset > cursor) return;
     const text = node.textContent.trim();
     if (labels[text] && (node.type.name === 'heading' || node.type.name === 'paragraph')) day = labels[text];
-    else if (node.type.name === 'heading' && text === 'After hours') day = null;
   });
   return day;
 }
 
 async function syncNow() {
   await flush();
-  $('week').textContent = 'syncing…';
+  $('flash').textContent = 'syncing…';
   const res = await fetch(`api/sync?date=${view.date}`, { method: 'POST' }).catch(() => null);
-  $('week').textContent = res?.ok ? 'synced' : 'sync failed';
-  setTimeout(render, 2000);
+  $('flash').textContent = res?.ok ? 'synced' : 'sync failed';
+  setTimeout(() => ($('flash').textContent = ''), 2000);
   refresh();
 }
 
@@ -157,13 +277,20 @@ window.addEventListener('keydown', (e) => {
   if (!(e.metaKey || e.ctrlKey)) return;
   clearTimeout(hintTimer);
   const step = { BracketLeft: -1, BracketRight: 1 }[e.code];
-  if (step) {
+  if (step && e.shiftKey) {
+    // Same tab, previous or next day (day view) or week (week view).
     e.preventDefault();
-    const byWeek = e.shiftKey || view.week;
-    go({ week: view.week, date: addDays(view.date, byWeek ? 7 * step : step) });
+    const name = tabList().find((t) => t.key === view.tab).name;
+    go({ week: view.week, date: addDays(view.date, view.week ? 7 * step : step), tabName: view.tab ? name : null });
+  } else if (step) {
+    e.preventDefault();
+    const list = tabList();
+    const i = list.findIndex((t) => t.key === view.tab);
+    go({ ...view, tab: list[(i + step + list.length) % list.length].key });
   } else if (e.code === 'Backslash') {
     e.preventDefault();
-    go(view.week ? { week: false, date: dayAtCursor() ?? view.date } : { week: true, date: view.date });
+    const day = view.week && view.tab !== null && view.tab !== 'notes' ? null : dayAtCursor();
+    go(view.week ? { week: false, date: day ?? view.date, tab: null } : { week: true, date: view.date, tab: null });
   } else if (e.code === 'KeyS') {
     e.preventDefault();
     syncNow();
@@ -177,17 +304,26 @@ window.addEventListener('keyup', (e) => {
 });
 
 window.addEventListener('hashchange', () => {
-  const next = viewFromHash();
-  if (next.date !== view.date || next.week !== view.week) go(next);
+  if (location.hash !== viewHash()) go(viewFromHash());
 });
 
-$('title').addEventListener('click', () => go({ week: false, date: today() }));
+$('title').addEventListener('click', () => go({ week: false, date: today(), tab: null }));
 
 // Pick up changes from the Doc or another device: every few seconds while the page is
 // visible, and whenever the window regains focus, but never mid-edit.
 async function refresh() {
-  const quiet = () => !dirty && !unsaved && !loading && editor.isEditable && Date.now() - lastInput > 3000;
+  const quiet = () => !dirty && !unsaved && !loading && editor.isEditable && Date.now() - lastInput > 3000
+    && !document.querySelector('input.rename');
   if (document.hidden || !quiet()) return;
+  // Tabs added, renamed or removed elsewhere (another device, the bot).
+  const before = JSON.stringify(tabs);
+  const date = view.date;
+  await loadTabs(date);
+  if (date !== view.date || !quiet()) return;
+  if (JSON.stringify(tabs) !== before) {
+    if (!tabList().some((t) => t.key === view.tab)) return go({ ...view, tab: null });
+    render();
+  }
   const url = apiUrl(view);
   const res = await fetch(url).catch(() => null);
   if (!res?.ok) return;
