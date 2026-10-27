@@ -461,6 +461,11 @@ createServer(async (req, res) => {
     res.end(body);
   };
   try {
+    // Any web page Alejo opens can reach the tailnet, so refuse writes a page on another
+    // site forged. Browsers mark them; scripts send no such header.
+    if (req.method !== 'GET' && (req.headers['sec-fetch-site'] ?? 'same-origin') !== 'same-origin') {
+      return send(403, 'cross-site request');
+    }
     if (url.pathname.startsWith('/api/')) {
       if (!isDate(date ?? '')) return send(400, 'bad date');
       const monday = mondayOf(date);
