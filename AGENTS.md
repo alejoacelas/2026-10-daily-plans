@@ -27,7 +27,7 @@ the "daily" Google Doc, with child tabs for Notes and for the extra tabs.
 - At 23:55 London time the server writes `DATA_DIR/snapshots/YYYY-MM-DD.md` (this week and
   next week, every tab included) and tags the day's commit `eod/YYYY-MM-DD`. Compare
   days with `git -C DATA_DIR diff eod/2026-10-11 eod/2026-10-18 -- days weeks`.
-  The snapshot files are temporary; see `DECISIONS.md`.
+  The snapshot files are temporary.
 - Every 10 s the server reads the whole Doc (`server/server.mjs`, `syncOnce`). Each week's tab is
   named `w41, Oct 05` (ISO week, Monday's date) and holds the plans. Its child tabs are Notes,
   each week tab by name, and each day tab as `Tue, Oct 13 · Call prep`. Sync compares parts (a
