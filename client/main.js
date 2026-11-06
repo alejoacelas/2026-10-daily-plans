@@ -2,7 +2,7 @@ import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import { Markdown } from '@tiptap/markdown';
-import { addDays, dayLabel, isDate, mondayOf, tabTitle, weekDates } from '../shared/plans.js';
+import { CUTOVER, addDays, dayLabel, isDate, mondayOf, tabTitle, weekDates } from '../shared/plans.js';
 
 const $ = (id) => document.getElementById(id);
 const pad = (n) => String(n).padStart(2, '0');
@@ -13,15 +13,24 @@ function today() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// The view is a day, or the week containing `date`, and one of its tabs: null for the
-// main tab, 'notes' for the week's Notes, or a tab id. The hash names the tab:
-// #2026-10-11, #w2026-10-11/Notes, #2026-10-11/Call%20prep.
+// The view is the running page (no hash), a past day, or a week before the cutover, and
+// one of its tabs: null for the main tab, 'notes' for the week's Notes, or a tab id. The
+// hash names the tab: #2026-10-11, #w2026-10-11/Notes, #2026-10-11/Call%20prep.
+let pageDate = today(); // the day the running page belongs to, as the server says
+const PAGE = { page: true, week: false, date: null, tab: null };
+const hasWeekView = (date) => mondayOf(date) < mondayOf(CUTOVER);
+
 function viewFromHash() {
   const m = decodeURIComponent(location.hash).match(/^#(w?)(\d{4}-\d{2}-\d{2})(?:\/(.+))?$/);
-  return m && isDate(m[2]) ? { week: m[1] === 'w', date: m[2], tabName: m[3] ?? null } : { week: false, date: today(), tab: null };
+  if (!m || !isDate(m[2]) || m[2] >= pageDate) return PAGE;
+  return { week: m[1] === 'w' && hasWeekView(m[2]), date: m[2], tabName: m[3] ?? null };
 }
 
+// A past day, or the page for today and later.
+const dayOrPage = (date, tabName = null) => (date >= pageDate ? PAGE : { week: false, date, tabName });
+
 function apiUrl(v) {
+  if (v.page) return 'api/page';
   if (v.tab === 'notes') return `api/notes?date=${v.date}`;
   if (v.tab) return `api/tab?date=${v.date}&kind=${v.week ? 'week' : 'day'}&id=${v.tab}`;
   return `api/${v.week ? 'week' : 'day'}?date=${v.date}`;
@@ -31,6 +40,7 @@ let tabs = { week: [], day: [] }; // the tabs of the view's week and day, from t
 
 // The tabs shown in the title line, left to right; the main tab comes last.
 function tabList(v = view) {
+  if (v.page) return [];
   const own = (v.week ? tabs.week : tabs.day).map((t) => ({ key: t.id, name: t.name, shared: t.shared, own: true }));
   return v.week
     ? [{ key: 'notes', name: 'Notes' }, ...own, { key: null, name: 'week' }]
@@ -43,7 +53,7 @@ const editor = new Editor({
   editable: false, // until the first view has loaded, so early typing isn't overwritten
 });
 
-let view = viewFromHash();
+let view = PAGE;
 let loading = false;
 let dirty = false;
 let editingUrl = null;
@@ -64,7 +74,10 @@ async function put(url, body) {
       const res = await fetch(url, {
         method: 'PUT', body, keepalive: body.length < 60_000, headers: { 'X-Version': versions.get(url) ?? '' },
       });
-      if (res.ok) return versions.set(url, res.headers.get('X-Version'));
+      if (res.ok) {
+        notePageDate(res);
+        return versions.set(url, res.headers.get('X-Version'));
+      }
     } catch {}
     setStatus('error');
     await sleep(3000);
@@ -79,7 +92,6 @@ function flush() {
   if (editingUrl !== apiUrl(view)) return saves; // never save one view's text under another
   const url = editingUrl;
   const body = editor.getMarkdown();
-  setStatus('saving');
   unsaved++;
   saves = saves.then(() => put(url, body)).then(() => --unsaved || dirty || setStatus(''));
   return saves;
@@ -101,25 +113,32 @@ function setContent(md) {
 }
 
 function viewHash() {
+  if (view.page) return '';
   const current = tabList().find((t) => t.key === view.tab);
   return `#${view.week ? 'w' : ''}${view.date}${current?.key ? `/${encodeURIComponent(current.name)}` : ''}`;
 }
 
 function render() {
   const current = tabList().find((t) => t.key === view.tab);
-  $('title').textContent = view.week ? tabTitle(mondayOf(view.date)) : dayLabel(view.date);
+  $('title').textContent = view.page ? dayLabel(pageDate) : view.week ? tabTitle(mondayOf(view.date)) : dayLabel(view.date);
   document.title = current?.key ? `${current.name} · ${$('title').textContent}` : $('title').textContent;
-  history.replaceState(null, '', viewHash());
+  history.replaceState(null, '', viewHash() || location.pathname + location.search);
   renderTabs();
 }
 
 function renderTabs() {
   const nav = $('tabs');
   nav.replaceChildren();
-  const add = el('button', { className: 'add', title: 'New tab', textContent: '+' });
-  add.onclick = addTab;
-  nav.append(add);
-  for (const t of tabList()) {
+  // Tabs belong to the old layout: the page has none, and later days only show their own.
+  const list = tabList();
+  if (!view.page && view.date < CUTOVER) {
+    const add = el('button', { className: 'add', title: 'New tab', textContent: '+' });
+    add.onclick = addTab;
+    nav.append(add);
+  } else if (list.length <= 1) {
+    return;
+  }
+  for (const t of list) {
     const tab = el('span', { className: `tab${t.key === view.tab ? ' on' : ''}` });
     const name = el('button', { className: 'name', textContent: t.name });
     name.onclick = () => t.key !== view.tab && go({ ...view, tab: t.key });
@@ -220,7 +239,7 @@ function placeCursor() {
     editor.chain().focus().setTextSelection(pos ?? 1).scrollIntoView().run();
     return;
   }
-  if (!view.tab && editor.state.doc.firstChild.type.name === 'heading') {
+  if (!view.page && view.date < CUTOVER && !view.tab && editor.state.doc.firstChild.type.name === 'heading') {
     // Empty plan: open a line above "Notes" to type in.
     loading = true;
     editor.chain().insertContentAt(0, { type: 'paragraph' }).run();
@@ -235,14 +254,19 @@ function placeCursor() {
 async function go(next, { place = true } = {}) {
   await flush();
   editor.setEditable(false, false);
-  await loadTabs(next.date);
-  const list = tabList(next);
-  const wanted = next.tabName !== undefined
-    ? list.find((t) => t.key && t.name.toLowerCase() === next.tabName?.toLowerCase())
-    : list.find((t) => t.key === next.tab);
-  view = { week: next.week, date: next.date, tab: wanted?.key ?? null };
+  if (next.page) {
+    view = PAGE;
+  } else {
+    await loadTabs(next.date);
+    const list = tabList(next);
+    const wanted = next.tabName !== undefined
+      ? list.find((t) => t.key && t.name.toLowerCase() === next.tabName?.toLowerCase())
+      : list.find((t) => t.key === next.tab);
+    view = { week: next.week, date: next.date, tab: wanted?.key ?? null };
+  }
   render();
   const res = await fetch(apiUrl(view));
+  notePageDate(res);
   const text = await res.text();
   versions.set(apiUrl(view), res.headers.get('X-Version'));
   setContent(text);
@@ -278,19 +302,27 @@ window.addEventListener('keydown', (e) => {
   clearTimeout(hintTimer);
   const step = { BracketLeft: -1, BracketRight: 1 }[e.code];
   if (step && e.shiftKey) {
-    // Same tab, previous or next day (day view) or week (week view).
+    // Previous or next day (day view) or week (week view), on the same tab. The page is
+    // the last day.
     e.preventDefault();
-    const name = tabList().find((t) => t.key === view.tab).name;
-    go({ week: view.week, date: addDays(view.date, view.week ? 7 * step : step), tabName: view.tab ? name : null });
+    if (view.page) return step < 0 && go(dayOrPage(addDays(pageDate, -1)));
+    const name = view.tab ? tabList().find((t) => t.key === view.tab).name : null;
+    const date = addDays(view.date, view.week ? 7 * step : step);
+    go(view.week ? (hasWeekView(date) ? { week: true, date, tabName: name } : PAGE) : dayOrPage(date, name));
   } else if (step) {
     e.preventDefault();
     const list = tabList();
+    if (list.length <= 1) return;
     const i = list.findIndex((t) => t.key === view.tab);
     go({ ...view, tab: list[(i + step + list.length) % list.length].key });
   } else if (e.code === 'Backslash') {
     e.preventDefault();
-    const day = view.week && view.tab !== null && view.tab !== 'notes' ? null : dayAtCursor();
-    go(view.week ? { week: false, date: day ?? view.date, tab: null } : { week: true, date: view.date, tab: null });
+    if (view.week) {
+      const day = view.tab !== null && view.tab !== 'notes' ? null : dayAtCursor();
+      go(dayOrPage(day ?? view.date));
+    } else if (!view.page && hasWeekView(view.date)) {
+      go({ week: true, date: view.date, tab: null });
+    }
   } else if (e.code === 'KeyS') {
     e.preventDefault();
     syncNow();
@@ -307,7 +339,15 @@ window.addEventListener('hashchange', () => {
   if (location.hash !== viewHash()) go(viewFromHash());
 });
 
-$('title').addEventListener('click', () => go({ week: false, date: today(), tab: null }));
+$('title').addEventListener('click', () => go(PAGE));
+
+// The page moves to the next day at midnight; the server says which day it belongs to.
+function notePageDate(res) {
+  const date = res?.headers.get('X-Page-Date');
+  if (!date || date === pageDate) return;
+  pageDate = date;
+  if (view.page) render();
+}
 
 // Pick up changes from the Doc or another device: every few seconds while the page is
 // visible, and whenever the window regains focus, but never mid-edit.
@@ -316,17 +356,20 @@ async function refresh() {
     && !document.querySelector('input.rename');
   if (document.hidden || !quiet()) return;
   // Tabs added, renamed or removed elsewhere (another device, the bot).
-  const before = JSON.stringify(tabs);
-  const date = view.date;
-  await loadTabs(date);
-  if (date !== view.date || !quiet()) return;
-  if (JSON.stringify(tabs) !== before) {
-    if (!tabList().some((t) => t.key === view.tab)) return go({ ...view, tab: null });
-    render();
+  if (!view.page) {
+    const before = JSON.stringify(tabs);
+    const date = view.date;
+    await loadTabs(date);
+    if (date !== view.date || !quiet()) return;
+    if (JSON.stringify(tabs) !== before) {
+      if (!tabList().some((t) => t.key === view.tab)) return go({ ...view, tab: null });
+      render();
+    }
   }
   const url = apiUrl(view);
   const res = await fetch(url).catch(() => null);
   if (!res?.ok) return;
+  notePageDate(res);
   const text = await res.text();
   const version = res.headers.get('X-Version');
   if (!quiet() || url !== apiUrl(view) || version === versions.get(url)) return;
@@ -341,4 +384,5 @@ window.addEventListener('focus', refresh);
 document.addEventListener('visibilitychange', () => (document.hidden ? flush() : refresh()));
 window.addEventListener('pagehide', flush);
 
-go(view);
+// Learn the page's day before reading the hash, which may name a day that is now the page.
+fetch('api/page').then(notePageDate, () => {}).finally(() => go(viewFromHash()));

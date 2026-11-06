@@ -1,15 +1,15 @@
-// Daily plans: serves the editor, stores the days, week tabs and day tabs as markdown
-// files, and keeps each week in step with its own tab of a Google Doc (with child tabs for
-// Notes and for the extra tabs). Both directions copy whole parts. When a part changed on
-// both sides between two checks, the app's version wins and the other copy is kept in
-// conflicts/.
+// Daily plans: serves the editor, keeps the running page that is copied from day to day,
+// saves it as the day's file at midnight, and keeps the page and each week of days in step
+// with a Google Doc (a Today tab, and a tab per week with child tabs for Notes and the extra
+// tabs). Both directions copy whole parts. When a part changed on both sides between two
+// checks, the app's version wins and the other copy is kept in conflicts/.
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  addDays, cleanTabName, composeDay, dayLabel, fingerprint, isDate, joinDay, mondayOf, splitDay, splitDayView,
+  CUTOVER, addDays, cleanTabName, composeDay, dayLabel, fingerprint, isDate, joinDay, mondayOf, splitDay, splitDayView,
   splitWeekNotes, splitWeekPlans, tabTitle, weekDates, weekNotes, weekPlans,
 } from '../shared/plans.js';
 import { addTab, deleteTab, flatTabs, getDoc, renameTab, tabToMarkdown, writeTab } from './gdocs.mjs';
@@ -19,7 +19,9 @@ const DATA = process.env.DATA_DIR ?? path.join(ROOT, 'data');
 const DAYS = path.join(DATA, 'days'); // YYYY-MM-DD.md, plus YYYY-MM-DD/ for that day's own tabs
 const WEEKS = path.join(DATA, 'weeks'); // <Monday>/ holds the week's tabs
 const CONFLICTS = path.join(DATA, 'conflicts');
-const SNAPSHOTS = path.join(DATA, 'snapshots'); // end-of-day copies of this week and next
+const PAGE = path.join(DATA, 'page.md'); // the running page
+const PAGE_META = path.join(DATA, 'page.json'); // { date }: the day the running page belongs to
+const PAGE_TAB = 'Today'; // the running page's Doc tab, first at the top level
 const TIME_ZONE = 'Europe/London';
 const STATE = path.join(DATA, 'state.json');
 const PORT = Number(process.env.PORT ?? 8770);
@@ -31,7 +33,6 @@ const FIRST_WEEK_TABS = [{ id: 'after', name: 'After hours', shared: true }];
 fs.mkdirSync(DAYS, { recursive: true });
 fs.mkdirSync(WEEKS, { recursive: true });
 fs.mkdirSync(CONFLICTS, { recursive: true });
-fs.mkdirSync(SNAPSHOTS, { recursive: true });
 if (!fs.existsSync(path.join(DATA, '.git'))) git('init', '-q');
 
 const read = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
@@ -72,6 +73,7 @@ const tabFile = (kind, key, tab) => path.join(scopeDir(kind, key), `${tab.name}.
 const readTab = (kind, key, tab) => read(tabFile(kind, key, tab)).trim();
 
 function inheritedTabs(monday) {
+  if (monday >= mondayOf(CUTOVER)) return [];
   const earlier = fs.readdirSync(WEEKS)
     .filter((m) => isDate(m) && m < monday && fs.existsSync(path.join(WEEKS, m, 'tabs.json')))
     .sort().at(-1);
@@ -142,12 +144,18 @@ function changeTabs(kind, key, { op, id, name, shared }) {
 const sharedTabs = (monday) => listTabs('week', monday).filter((t) => t.shared);
 
 function dayView(date) {
+  if (date >= CUTOVER) return readDay(date);
   const monday = mondayOf(date);
   const shared = sharedTabs(monday).map((t) => ({ name: t.name, md: readTab('week', monday, t) }));
   return composeDay(splitDay(readDay(date)), shared);
 }
 
 function writeDayView(date, md, stale) {
+  if (date >= CUTOVER) {
+    if (stale && readDay(date).trim() !== md.trim()) keep(date, 'replaced', readDay(date));
+    if (md.trim() !== readDay(date).trim()) writeFile(dayFile(date), `${md.trim()}\n`);
+    return;
+  }
   const monday = mondayOf(date);
   const tabs = sharedTabs(monday);
   const view = splitDayView(md, tabs.map((t) => t.name));
@@ -176,6 +184,7 @@ function view(url) {
   const monday = mondayOf(date);
   switch (url.pathname) {
     case '/api/day':
+      if (date >= pageDate()) return null; // today and later are the running page
       return { read: () => dayView(date), write: (md, stale) => writeDayView(date, md, stale) };
     case '/api/week':
       return {
@@ -205,22 +214,6 @@ function view(url) {
   return null;
 }
 
-// The whole week in one markdown document: plans, notes, then every tab with text.
-function weekDigest(monday) {
-  const sections = [weekPlans(monday, parts(monday, 'plan')).trim()];
-  const notes = weekNotes(monday, parts(monday, 'notes')).trim();
-  if (notes) sections.push('## Notes', notes);
-  for (const t of listTabs('week', monday)) {
-    if (readTab('week', monday, t)) sections.push(`## ${t.name}`, readTab('week', monday, t));
-  }
-  for (const date of weekDates(monday)) {
-    for (const t of listTabs('day', date)) {
-      if (readTab('day', date, t)) sections.push(`## ${dayLabel(date)} · ${t.name}`, readTab('day', date, t));
-    }
-  }
-  return sections.join('\n\n') + '\n';
-}
-
 // Before tabs, a week's After hours text was weeks/<Monday>.md.
 function migrateAfterHours() {
   for (const f of fs.readdirSync(WEEKS)) {
@@ -239,11 +232,12 @@ function git(...args) {
   return execFileSync('git', ['-C', DATA, ...args], { encoding: 'utf8' });
 }
 
-// History of every day file: commit pending changes every ten minutes.
+// History of every day file and the page: commit pending changes every ten minutes.
+const TRACKED = ['days', 'weeks', 'conflicts', 'page.md', 'page.json'];
 function snapshot() {
   try {
-    if (!git('status', '--porcelain', 'days', 'weeks', 'conflicts', 'snapshots').trim()) return;
-    git('add', 'days', 'weeks', 'conflicts', 'snapshots');
+    if (!git('status', '--porcelain', ...TRACKED).trim()) return;
+    git('add', '-A', ...TRACKED);
     git('-c', 'user.name=daily-plans', '-c', 'user.email=daily-plans@localhost', 'commit', '-qm', 'snapshot');
   } catch (e) {
     console.error('snapshot failed:', e.message);
@@ -257,22 +251,36 @@ function localNow() {
   return { date: `${parts.year}-${parts.month}-${parts.day}`, minutes: Number(parts.hour) * 60 + Number(parts.minute) };
 }
 
-// At 23:55 local time, save this week and next week as they stand, in plain markdown, and
-// tag the day's state in Git (eod/YYYY-MM-DD) so any two days can be compared.
-function endOfDay() {
-  const { date, minutes } = localNow();
-  const file = path.join(SNAPSHOTS, `${date}.md`);
-  if (minutes < 23 * 60 + 55 || fs.existsSync(file)) return;
-  const monday = mondayOf(date);
-  const weeks = [monday, addDays(monday, 7)].map((m) => `# ${tabTitle(m)}\n\n${weekDigest(m).replace(/^## /gm, '### ')}`);
-  writeFile(file, `Snapshot of ${date}, end of day.\n\n${weeks.join('\n')}`);
+// The running page. It starts as the first day's entry; after that, the first check past
+// midnight saves it as the file of the day it belonged to, tags that state in Git
+// (eod/YYYY-MM-DD) and carries on as the next day's page. A missed midnight is caught up by
+// the next check, and the page goes to the day it last belonged to.
+const readPage = () => read(PAGE);
+const pageDate = () => JSON.parse(read(PAGE_META) || '{}').date;
+const writePage = (md) => writeFile(PAGE, md.trim() ? `${md.trim()}\n` : '');
+
+function startPage() {
+  if (fs.existsSync(PAGE_META)) return;
+  const { date } = localNow();
+  writePage(readDay(date));
+  writeFile(PAGE_META, JSON.stringify({ date }) + '\n');
+  console.log(`started the running page from ${date}`);
+}
+
+function rollOver() {
+  const { date } = localNow();
+  const from = pageDate();
+  if (!from || date <= from) return;
+  snapshot();
+  if (readPage().trim()) writeFile(dayFile(from), readPage());
+  writeFile(PAGE_META, JSON.stringify({ date }) + '\n');
   snapshot();
   try {
-    git('tag', '-f', `eod/${date}`);
+    git('tag', '-f', `eod/${from}`);
   } catch (e) {
     console.error('tag failed:', e.message);
   }
-  console.log(`saved the end-of-day snapshot for ${date}`);
+  console.log(`saved the page as ${from}; it is now ${date}'s page`);
 }
 
 // The Doc tabs of one week: the week tab itself (each day's plan), then child tabs for
@@ -311,6 +319,41 @@ function docSpecs(monday) {
 
 const prefix = (p, byDate) => Object.fromEntries(Object.entries(byDate).map(([d, t]) => [`${p}:${d}`, t]));
 
+// The Today tab and the running page: the same rule as a week's parts, for one part.
+// Returns true when it wrote to the Doc, so the weeks wait for the next check.
+async function syncPage(doc, state) {
+  const p = (state.page ??= { app: '', doc: '', tabId: null });
+  let tab = doc.tabs.find((t) => t.tabProperties.tabId === p.tabId) ?? doc.tabs.find((t) => t.tabProperties.title === PAGE_TAB);
+  p.tabId = tab?.tabProperties.tabId ?? null;
+  const app = readPage().trim();
+  const docText = tab ? tabToMarkdown(tab).trim() : undefined;
+  const appChanged = app !== p.app;
+  const docChanged = docText !== undefined && docText !== p.doc;
+  if (docChanged && !appChanged) {
+    writePage(docText);
+    [p.app, p.doc] = [readPage().trim(), docText];
+    console.log('pulled the page from the Doc');
+    return false;
+  }
+  if (tab && !appChanged) return false;
+  if (docChanged) keep('page', 'doc', docText);
+  try {
+    let revision = doc.revisionId;
+    if (!tab) {
+      const added = await addTab(DOC_ID, doc, { title: PAGE_TAB, index: 0 }, revision);
+      [p.tabId, revision] = [added.tabId, added.revisionId];
+      tab = { tabProperties: { tabId: added.tabId } };
+    }
+    await writeTab(DOC_ID, tab, app, revision);
+    const after = flatTabs((await getDoc(DOC_ID)).tabs).find((t) => t.tabProperties.tabId === p.tabId);
+    [p.app, p.doc] = [app, after ? tabToMarkdown(after).trim() : ''];
+    console.log('pushed the page');
+  } catch (e) {
+    console.error('push of the page stopped:', e.message);
+  }
+  return true;
+}
+
 // One check. For each week, compare each part on both sides with the version both sides
 // had at the last sync (each side keeps its own copy, so formatting differences between
 // markdown and Docs never look like edits). Pull parts changed only in the Doc; rewrite
@@ -334,7 +377,7 @@ async function syncOnce() {
     if (doc.tabs.some((t) => t.tabProperties.title === tabTitle(monday))) mondays.add(monday);
   }
 
-  let wrote = false;
+  let wrote = await syncPage(doc, state);
   for (const monday of [...mondays].sort()) {
     const week = (state.weeks[monday] ??= { app: {}, doc: {}, tabs: {} });
     const rewrite = state.rewrite.includes(monday);
@@ -466,6 +509,16 @@ createServer(async (req, res) => {
     if (req.method !== 'GET' && (req.headers['sec-fetch-site'] ?? 'same-origin') !== 'same-origin') {
       return send(403, 'cross-site request');
     }
+    if (url.pathname === '/api/page' && ['GET', 'PUT'].includes(req.method)) {
+      // X-Page-Date names the day the page belongs to, which changes at midnight.
+      if (req.method === 'GET') {
+        return send(200, readPage(), { 'X-Version': fingerprint(readPage()), 'X-Page-Date': pageDate() });
+      }
+      const md = await readBody(req);
+      if (req.headers['x-version'] !== fingerprint(readPage()) && readPage().trim() !== md.trim()) keep('page', 'replaced', readPage());
+      writePage(md);
+      return send(204, '', { 'X-Version': fingerprint(readPage()), 'X-Page-Date': pageDate() });
+    }
     if (url.pathname.startsWith('/api/')) {
       if (!isDate(date ?? '')) return send(400, 'bad date');
       const monday = mondayOf(date);
@@ -509,5 +562,7 @@ createServer(async (req, res) => {
 
 setInterval(sync, SYNC_MS);
 setInterval(snapshot, 10 * 60_000);
-setInterval(endOfDay, 60_000);
+setInterval(rollOver, 60_000);
+startPage();
+rollOver();
 sync();

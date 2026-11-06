@@ -5,6 +5,10 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const NOTES_HEADING = /^##\s+Notes\s*$/;
 
+// From this day on there is one running page, saved as the day's file at midnight. Earlier
+// days keep the old layout: a plan, shared week tabs and notes, with a week view.
+export const CUTOVER = '2026-11-06';
+
 const parse = (date) => {
   const [y, m, d] = date.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d));
@@ -50,7 +54,7 @@ export function splitDay(md = '') {
 }
 
 export function joinDay({ plan, notes }) {
-  return [plan, '## Notes', notes].filter(Boolean).join('\n\n') + '\n';
+  return [plan, notes && '## Notes', notes].filter(Boolean).join('\n\n') + '\n';
 }
 
 // A day's main tab: the plan, then each week tab shared with the days under its own

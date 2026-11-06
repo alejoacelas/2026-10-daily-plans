@@ -42,7 +42,6 @@ header:hover #tabs .add, #tabs .add:focus-visible { opacity: .6; }
 #tabs .dot.on { background: var(--muted); opacity: .55; }
 #tabs .dot.on:hover { opacity: 1; }
 #status { width: 6px; height: 6px; border-radius: 50%; align-self: center; }
-#status.saving { background: var(--muted); }
 #status.error { background: var(--accent); }
 footer {
   position: fixed; right: 20px; bottom: 14px; font-size: 12px; color: var(--muted);
