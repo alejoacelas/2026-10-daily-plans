@@ -286,8 +286,10 @@ function rollOver() {
 // The Doc tabs of one week: the week tab itself (each day's plan), then child tabs for
 // Notes, each week tab and each day's own tab. Each Doc tab is made of parts (a day's plan,
 // a day's notes, a tab's text) that are compared and copied whole.
+// Docs needs tab titles unique across the whole Doc, so week child tabs start with the week.
 function docSpecs(monday) {
   const dates = weekDates(monday);
+  const week = tabTitle(monday).split(',')[0]; // e.g. w41
   const specs = [
     {
       key: 'main', title: tabTitle(monday),
@@ -296,7 +298,7 @@ function docSpecs(monday) {
       split: (md) => prefix('plan', splitWeekPlans(monday, md)),
     },
     {
-      key: 'notes', title: 'Notes',
+      key: 'notes', title: `${week} · Notes`,
       parts: dates.map((d) => ({ key: `notes:${d}`, name: `${d} notes`, read: () => splitDay(readDay(d)).notes, write: (t) => setNotes(d, t) })),
       compose: () => weekNotes(monday, parts(monday, 'notes')),
       split: (md) => prefix('notes', splitWeekNotes(monday, md)),
@@ -312,7 +314,7 @@ function docSpecs(monday) {
       split: (md) => ({ [id]: md.trim() }),
     };
   };
-  for (const t of listTabs('week', monday)) specs.push(tabSpec('week', monday, t, t.name));
+  for (const t of listTabs('week', monday)) specs.push(tabSpec('week', monday, t, `${week} · ${t.name}`));
   for (const d of dates) for (const t of listTabs('day', d)) specs.push(tabSpec('day', d, t, `${dayLabel(d)} · ${t.name}`));
   return specs;
 }
