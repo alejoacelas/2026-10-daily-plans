@@ -184,7 +184,7 @@ function view(url) {
   const monday = mondayOf(date);
   switch (url.pathname) {
     case '/api/day':
-      if (date >= pageDate()) return null; // today and later are the running page
+      if (date === pageDate()) return null; // today is the running page; later days are written ahead
       return { read: () => dayView(date), write: (md, stale) => writeDayView(date, md, stale) };
     case '/api/week':
       return {
@@ -254,7 +254,8 @@ function localNow() {
 // The running page. It starts as the first day's entry; after that, the first check past
 // midnight saves it as the file of the day it belonged to, tags that state in Git
 // (eod/YYYY-MM-DD) and carries on as the next day's page. A missed midnight is caught up by
-// the next check, and the page goes to the day it last belonged to.
+// the next check, and the page goes to the day it last belonged to. Anything written ahead
+// for the new day goes to the top of the page, and that day's file is cleared.
 const readPage = () => read(PAGE);
 const pageDate = () => JSON.parse(read(PAGE_META) || '{}').date;
 const writePage = (md) => writeFile(PAGE, md.trim() ? `${md.trim()}\n` : '');
@@ -274,6 +275,12 @@ function rollOver() {
   snapshot();
   if (readPage().trim()) writeFile(dayFile(from), readPage());
   writeFile(PAGE_META, JSON.stringify({ date }) + '\n');
+  const ahead = readDay(date).trim();
+  if (ahead) {
+    writePage([ahead, readPage().trim()].filter(Boolean).join('\n\n'));
+    fs.rmSync(dayFile(date));
+    console.log(`moved what was written ahead for ${date} to the top of the page`);
+  }
   snapshot();
   try {
     git('tag', '-f', `eod/${from}`);
@@ -536,15 +543,22 @@ createServer(async (req, res) => {
       }
       // X-Version identifies the content a client last saw; an edit sent with an older
       // version still wins, but the version it replaces is kept in conflicts/.
+      // X-Page-Date lets a client on a day written ahead notice when that day becomes the page.
       const v = ['GET', 'PUT'].includes(req.method) && view(url);
+      const day = { 'X-Page-Date': pageDate() };
       if (v && req.method === 'GET') {
         const text = v.read();
-        return send(200, text, { 'X-Version': fingerprint(text) });
+        return send(200, text, { 'X-Version': fingerprint(text), ...day });
       }
       if (v) {
         const stale = req.headers['x-version'] !== fingerprint(v.read());
         v.write(await readBody(req), stale);
-        return send(204, '', { 'X-Version': fingerprint(v.read()) });
+        return send(204, '', { 'X-Version': fingerprint(v.read()), ...day });
+      }
+      if (url.pathname === '/api/day' && date === pageDate()) {
+        // An edit to a day written ahead that arrived after midnight made it the page.
+        if (req.method === 'PUT') keep(date, 'late', await readBody(req));
+        return send(404, 'this day is now the page', day);
       }
       if (url.pathname === '/api/sync' && req.method === 'POST') {
         await sync();

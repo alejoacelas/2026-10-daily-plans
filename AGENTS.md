@@ -12,6 +12,8 @@ the "daily" Google Doc, with child tabs for Notes and for the extra tabs.
 ## How it works
 
 - One markdown file per day in `DATA_DIR/days/YYYY-MM-DD.md`: the plan, then `## Notes`, then notes.
+  From Nov 6, 2026 the running page (`page.md`) is today; a future day's file holds what was
+  written ahead for it, which moves to the top of the page at midnight and clears the file.
   `DATA_DIR` is a Git repository the server commits to every ten minutes, so every version is recoverable.
 - Both views have tabs (formats in `shared/plans.js`):
   - The week's main tab is each day's plan under `## Mon, Oct 5`. Its Notes tab is each

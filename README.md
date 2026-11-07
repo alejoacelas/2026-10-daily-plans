@@ -5,8 +5,9 @@ from day to day, and at midnight (London time) the server saves it as that day's
 entry. Edits after midnight change only the new day. To keep a section from one day
 to the next, leave it on the page.
 
-⌘⇧[ and ⌘⇧] step through past days; ⌘⇧] past yesterday returns to the page, and so
-does clicking the date. Days before Nov 6, 2026 keep their old layout: shared week tabs,
+⌘⇧[ and ⌘⇧] step through past days and on to future ones; clicking the date returns to
+the page. Whatever you write on a future day moves to the top of the page when that day
+comes. Days before Nov 6, 2026 keep their old layout: shared week tabs,
 notes, and a week view (⌘\) for weeks before Nov 2.
 
 The page lives in the "Today" tab of a Google Doc, and each past day in its week's

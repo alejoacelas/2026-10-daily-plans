@@ -22,12 +22,12 @@ const hasWeekView = (date) => mondayOf(date) < mondayOf(CUTOVER);
 
 function viewFromHash() {
   const m = decodeURIComponent(location.hash).match(/^#(w?)(\d{4}-\d{2}-\d{2})(?:\/(.+))?$/);
-  if (!m || !isDate(m[2]) || m[2] >= pageDate) return PAGE;
+  if (!m || !isDate(m[2]) || m[2] === pageDate) return PAGE;
   return { week: m[1] === 'w' && hasWeekView(m[2]), date: m[2], tabName: m[3] ?? null };
 }
 
-// A past day, or the page for today and later.
-const dayOrPage = (date, tabName = null) => (date >= pageDate ? PAGE : { week: false, date, tabName });
+// A past or future day, or the page for today.
+const dayOrPage = (date, tabName = null) => (date === pageDate ? PAGE : { week: false, date, tabName });
 
 function apiUrl(v) {
   if (v.page) return 'api/page';
@@ -74,10 +74,9 @@ async function put(url, body) {
       const res = await fetch(url, {
         method: 'PUT', body, keepalive: body.length < 60_000, headers: { 'X-Version': versions.get(url) ?? '' },
       });
-      if (res.ok) {
-        notePageDate(res);
-        return versions.set(url, res.headers.get('X-Version'));
-      }
+      notePageDate(res);
+      if (res.ok) return versions.set(url, res.headers.get('X-Version'));
+      if (res.status === 404) return; // a day written ahead became the page; the server kept the edit
     } catch {}
     setStatus('error');
     await sleep(3000);
@@ -303,9 +302,9 @@ window.addEventListener('keydown', (e) => {
   const step = { BracketLeft: -1, BracketRight: 1 }[e.code];
   if (step && e.shiftKey) {
     // Previous or next day (day view) or week (week view), on the same tab. The page is
-    // the last day.
+    // today; days after it can be written ahead.
     e.preventDefault();
-    if (view.page) return step < 0 && go(dayOrPage(addDays(pageDate, -1)));
+    if (view.page) return go(dayOrPage(addDays(pageDate, step)));
     const name = view.tab ? tabList().find((t) => t.key === view.tab).name : null;
     const date = addDays(view.date, view.week ? 7 * step : step);
     go(view.week ? (hasWeekView(date) ? { week: true, date, tabName: name } : PAGE) : dayOrPage(date, name));
@@ -342,11 +341,13 @@ window.addEventListener('hashchange', () => {
 $('title').addEventListener('click', () => go(PAGE));
 
 // The page moves to the next day at midnight; the server says which day it belongs to.
+// A day written ahead that has just become today opens as the page.
 function notePageDate(res) {
   const date = res?.headers.get('X-Page-Date');
   if (!date || date === pageDate) return;
   pageDate = date;
   if (view.page) render();
+  else if (view.date === pageDate) setTimeout(() => go(PAGE));
 }
 
 // Pick up changes from the Doc or another device: every few seconds while the page is
@@ -368,8 +369,8 @@ async function refresh() {
   }
   const url = apiUrl(view);
   const res = await fetch(url).catch(() => null);
-  if (!res?.ok) return;
   notePageDate(res);
+  if (!res?.ok) return;
   const text = await res.text();
   const version = res.headers.get('X-Version');
   if (!quiet() || url !== apiUrl(view) || version === versions.get(url)) return;
