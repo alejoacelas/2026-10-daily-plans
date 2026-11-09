@@ -1,7 +1,7 @@
 # daily-plans
 
 A minimal WYSIWYG markdown editor for daily plans, hosted on the agent server
-(`~/best/stash/server`). Each week syncs both ways with its own tab of
+(`~/best/areas/server`). Each week syncs both ways with its own tab of
 the "daily" Google Doc, with child tabs for Notes and for the extra tabs.
 
 - Visibility: public repository. Plan content lives only on the server and in the Google Doc; never commit it.
